@@ -77,6 +77,14 @@ With the Atlas `MONGODB_URI` in `server/.env` (or exported), from `server/`:
 - `npm run load-data` — the real committees + media team (`server/scripts/load-real-data.mjs`;
   add `-- --clean` to also remove the demo rows). Also sets the admin + POC.
 - `npm run set-roles` — only (re)apply the admin/POC emails + init availability fields.
+- `npm run db-check` — diagnose whether `server/.env` can reach MongoDB.
+
+Can't reach Atlas from your network (campus firewall etc.)? Run the loader on the
+server instead — same loader, guarded by `CRON_SECRET`:
+```
+curl -X POST -H "x-cron-secret: <CRON_SECRET>" \
+  "https://<your-service>.onrender.com/api/admin/load-data?clean=1"
+```
 
 ### 5. Vercel (frontend)
 Set `web/js/config.js` → `PROD_API_BASE` to the Render URL, then redeploy `web/`
