@@ -1,7 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MCC">
-  <!-- Media & Communications Committee monogram (bold angular M). -->
-  <rect width="64" height="64" rx="12" fill="none"/>
-  <polyline points="9,53 9,11 32,45 55,11 55,53"
-            fill="none" stroke="#111418" stroke-width="8"
-            stroke-linejoin="miter" stroke-linecap="square"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Media & Communications Committee">
+  <!--
+    MCC monogram — outline "M": vertical outer legs, deep central V, hollow
+    interior (line-art). Rendered as a thick black stroke with a thinner white
+    stroke on top, which yields the black-outline / white-inside look.
+    For a pixel-exact raster, drop your PNG at web/favicon.png (see index.html).
+  -->
+  <polyline points="44,398 44,112 256,360 468,112 468,398"
+            fill="none" stroke="#111418" stroke-width="46"
+            stroke-linejoin="miter" stroke-linecap="square" stroke-miterlimit="2"/>
+  <polyline points="44,398 44,112 256,360 468,112 468,398"
+            fill="none" stroke="#ffffff" stroke-width="20"
+            stroke-linejoin="miter" stroke-linecap="butt" stroke-miterlimit="2"/>
 </svg>
