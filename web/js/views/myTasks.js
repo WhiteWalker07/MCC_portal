@@ -69,6 +69,8 @@ export function renderMyTasks(container, session) {
 
 function taskHtml(t) {
   const canComplete = t.status === "CONFIRMED" || t.status === "LATE";
+  // An event-bound task can't be completed before the event starts.
+  const notStarted = t.eventStart && new Date(t.eventStart).getTime() > Date.now();
   const late = t.status === "LATE";
   const sub = [t.refCode, t.eventName].filter(Boolean).map(esc).join(" · ");
   const ptsChip = Number(t.points)
@@ -86,7 +88,9 @@ function taskHtml(t) {
       </div>
       ${
         canComplete
-          ? `<button class="btn btn--sm btn--primary task-done" data-id="${esc(t.id)}" type="button">Mark done</button>`
+          ? notStarted
+            ? `<button class="btn btn--sm" type="button" disabled title="Available once the event starts on ${esc(fmtDate(t.eventStart))}">Starts ${esc(fmtRel(t.eventStart))}</button>`
+            : `<button class="btn btn--sm btn--primary task-done" data-id="${esc(t.id)}" type="button">Mark done</button>`
           : ""
       }
     </li>`;

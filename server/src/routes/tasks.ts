@@ -40,6 +40,10 @@ tasksRouter.post(
     if (!["CONFIRMED", "LATE"].includes(task.status)) {
       throw httpError("failed-precondition", "Task is not open for completion.");
     }
+    // A task tied to an event can't be completed before that event starts.
+    if (task.eventStart && new Date(task.eventStart).getTime() > Date.now()) {
+      throw httpError("failed-precondition", "You can't mark this done until the event has started.");
+    }
     await col.tasks().updateOne({ _id: task._id }, { $set: { status: "DONE", completedAt: new Date() } });
     await completeTask(req.params.id);
     res.json({ ok: true });
