@@ -31,6 +31,7 @@ export function isBaseEligible(
 ): boolean {
   return (
     m.active === true &&
+    m.availability !== "out" && // out-of-work / on break -> not assignable
     (m.strikes || 0) < settings.strikeLimit &&
     Array.isArray(m.skills) &&
     m.skills.includes(requiredSkill) &&

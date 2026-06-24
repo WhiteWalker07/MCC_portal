@@ -82,6 +82,13 @@ export interface TeamMember {
   year?: number;
   /** Vertical this member is the domain head of; "" if not a head. */
   domainHeadOf?: string;
+  /** Work availability: "available" (on work) or "out" (out of work / break). */
+  availability?: "available" | "out";
+  /** When the current availability state began (for day counting). */
+  availabilityChangedAt?: Date;
+  /** Cumulative days spent on work / out of work (banked completed segments). */
+  onWorkDays?: number;
+  outDays?: number;
 }
 
 export interface RosterEntry {

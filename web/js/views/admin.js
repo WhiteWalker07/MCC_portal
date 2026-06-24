@@ -11,6 +11,7 @@ import {
   parseCsv,
   listTeamMembers,
   setDomainHead,
+  setAvailability,
   getPointScheme,
   setPointScheme,
 } from "../data.js";
@@ -55,6 +56,15 @@ export function renderAdmin(container, session) {
         one replaces the previous.</p>
       <p id="heads-error" class="error" hidden></p>
       <div id="heads-body"><p class="muted">Loading…</p></div>
+    </section>
+
+    <section class="card stack">
+      <h1>Availability</h1>
+      <p class="muted">Mark a member <strong>Out of work</strong> (on break) so the engine
+        stops assigning them tasks, or bring them back <strong>On work</strong>. Days on /
+        out of work are tallied from each change.</p>
+      <p id="avail-error" class="error" hidden></p>
+      <div id="avail-body"><p class="muted">Loading…</p></div>
     </section>
 
     <section class="card stack">
@@ -172,6 +182,42 @@ export function renderAdmin(container, session) {
 
   loadHeads();
 
+  // ---- Availability -------------------------------------------------------
+  const availBody = container.querySelector("#avail-body");
+  const availErr = container.querySelector("#avail-error");
+
+  async function loadAvailability() {
+    availErr.hidden = true;
+    try {
+      const { members } = await listTeamMembers();
+      availBody.innerHTML = availabilityHtml(members);
+      wireAvailability();
+    } catch (err) {
+      availBody.innerHTML = "";
+      availErr.textContent = err.message || String(err);
+      availErr.hidden = false;
+    }
+  }
+
+  function wireAvailability() {
+    availBody.querySelectorAll(".avail-toggle").forEach((b) => {
+      b.addEventListener("click", async () => {
+        availErr.hidden = true;
+        b.disabled = true;
+        try {
+          await setAvailability(b.dataset.email, b.dataset.next);
+          await loadAvailability();
+        } catch (err) {
+          b.disabled = false;
+          availErr.textContent = err.message || String(err);
+          availErr.hidden = false;
+        }
+      });
+    });
+  }
+
+  loadAvailability();
+
   // ---- Point scheme -------------------------------------------------------
   const schemeGrid = container.querySelector("#scheme-grid");
   const schemeErr = container.querySelector("#scheme-error");
@@ -241,6 +287,32 @@ function headsHtml(members, verticals) {
 
 function cssEsc(s) {
   return String(s).replace(/["\\]/g, "\\$&");
+}
+
+function availabilityHtml(members) {
+  if (!members.length) return `<p class="muted">No team members yet.</p>`;
+  const rows = members
+    .map((m) => {
+      const out = m.availability === "out";
+      const next = out ? "available" : "out";
+      const statusChip = `<span class="status" data-status="${out ? "LATE" : "CONFIRMED"}">${out ? "Out of work" : "On work"}</span>`;
+      return `
+        <tr>
+          <td>${esc(m.name)}${m.vertical ? `<br><span class="muted">${esc(m.vertical)}</span>` : ""}</td>
+          <td>${statusChip}</td>
+          <td>${esc(m.onWorkDays ?? 0)} d</td>
+          <td>${esc(m.outDays ?? 0)} d</td>
+          <td><button type="button" class="btn btn--sm${out ? " btn--primary" : ""} avail-toggle"
+                data-email="${esc(m.email)}" data-next="${next}">
+                ${out ? "Mark on work" : "Mark out of work"}</button></td>
+        </tr>`;
+    })
+    .join("");
+  return `
+    <table class="roster">
+      <thead><tr><th>Member</th><th>Status</th><th>On work</th><th>Out</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 
 function resultsHtml(results, summary) {

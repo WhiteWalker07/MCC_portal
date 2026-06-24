@@ -60,8 +60,8 @@ const settings = {
   campusStrict: true,
   requireApprovalAlways: false,
   strikeAssigneeToo: false,
-  secretaryEmails: ["poc@iimsirmaur.ac.in"],
-  adminEmails: ["admin@iimsirmaur.ac.in"],
+  secretaryEmails: ["mba25114@iimsirmaur.ac.in"],
+  adminEmails: ["mbatm25010@iimsirmaur.ac.in"],
   headEmail: "media.head@iimsirmaur.ac.in",
   committeeName: "Media Committee",
   allowedDomains: ["iimsirmaur.ac.in"],
@@ -140,7 +140,16 @@ async function main() {
 
   console.log("team:");
   for (const t of team) {
-    const doc = { strikes: 0, points: 0, active: true, ...t };
+    const doc = {
+      strikes: 0,
+      points: 0,
+      active: true,
+      availability: "available",
+      availabilityChangedAt: new Date(),
+      onWorkDays: 0,
+      outDays: 0,
+      ...t,
+    };
     await put(db, "team", t.email, doc, `team/${t.email}`);
   }
 

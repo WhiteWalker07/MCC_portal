@@ -164,6 +164,10 @@ export const listTeamMembers = () => apiGet("/api/team");
 
 export const setDomainHead = (email, vertical) => mutate("/api/team/head", { email, vertical });
 
+/** Flip a member between "available" (on work) and "out" (out of work / break). */
+export const setAvailability = (email, availability) =>
+  mutate("/api/team/availability", { email, availability });
+
 export const setPointScheme = (points) => mutate("/api/config/points", { points });
 
 /** Read the current scoring scheme. */

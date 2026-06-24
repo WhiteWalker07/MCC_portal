@@ -28,6 +28,22 @@ function parseBool(v: unknown, dflt: boolean): boolean {
   return s === "true" || s === "1" || s === "yes" || s === "y";
 }
 
+const DAY_MS = 86_400_000;
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * Current availability + day totals for a member, including the in-progress
+ * segment since `availabilityChangedAt` (so counts are live, not just banked).
+ */
+function availabilitySnapshot(m: Record<string, unknown>) {
+  const status = m.availability === "out" ? "out" : "available";
+  const changedAt = m.availabilityChangedAt ? new Date(m.availabilityChangedAt as string).getTime() : null;
+  const seg = changedAt ? Math.max(0, (Date.now() - changedAt) / DAY_MS) : 0;
+  const onWorkDays = (Number(m.onWorkDays) || 0) + (status === "available" ? seg : 0);
+  const outDays = (Number(m.outDays) || 0) + (status === "out" ? seg : 0);
+  return { availability: status, onWorkDays: round1(onWorkDays), outDays: round1(outDays) };
+}
+
 // ── listTeamMembers ──────────────────────────────────────────────────────────
 teamRouter.get(
   "/api/team",
@@ -45,6 +61,7 @@ teamRouter.get(
         campus: d.campus || "",
         year: d.year || null,
         active: d.active !== false,
+        ...availabilitySnapshot(d),
       }))
       .sort((a, b) => String(a.name).localeCompare(String(b.name)));
     res.json({ members, verticals: VERTICALS });
@@ -142,6 +159,49 @@ teamRouter.post(
       detail: vertical ? `Made head of ${vertical}` : "Removed as head",
     });
     res.json({ ok: true });
+  })
+);
+
+// ── setAvailability (out of work / on break) ─────────────────────────────────
+// Secretary/admin flips a member between "available" and "out". The completed
+// segment in the previous state is banked into onWorkDays / outDays.
+teamRouter.post(
+  "/api/team/availability",
+  requireAuth,
+  attachRoles,
+  requireSecretaryOrAdmin,
+  asyncHandler(async (req: Request, res: Response) => {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const next = String(req.body?.availability || "").trim();
+    if (!email) throw httpError("invalid-argument", "email required.");
+    if (next !== "available" && next !== "out") {
+      throw httpError("invalid-argument", "availability must be 'available' or 'out'.");
+    }
+
+    const member = await col.team().findOne({ _id: email as never });
+    if (!member) throw httpError("not-found", "Not a team member.");
+
+    const now = new Date();
+    const prev = member.availability === "out" ? "out" : "available";
+    const changedAt = member.availabilityChangedAt ? new Date(member.availabilityChangedAt).getTime() : now.getTime();
+    const seg = Math.max(0, (now.getTime() - changedAt) / DAY_MS);
+    const incField = prev === "out" ? "outDays" : "onWorkDays";
+
+    await col.team().updateOne(
+      { _id: email as never },
+      {
+        $inc: { [incField]: seg },
+        $set: { availability: next, availabilityChangedAt: now },
+      }
+    );
+
+    await appendActivity({
+      event: "availability",
+      actor: getEmail(req),
+      member: email,
+      detail: `${prev} -> ${next}`,
+    });
+    res.json({ ok: true, availability: next });
   })
 );
 
