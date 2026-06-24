@@ -71,9 +71,12 @@ New **Web Service** from the GitHub repo (the repo must be pushed to GitHub firs
   Do **not** set `COOKIE_INSECURE` in production (cookies must be `SameSite=None; Secure`).
   Free instances sleep after ~15 min idle (~50s cold start).
 
-### 4. Seed production
-With the Atlas `MONGODB_URI` in `server/.env` (or exported), run `npm run seed` once.
-Edit `scripts/seed-mongo.mjs` first to use the real committees/team/settings.
+### 4. Seed / load data
+With the Atlas `MONGODB_URI` in `server/.env` (or exported), from `server/`:
+- `npm run seed` — sample config/committees/team (edit `server/scripts/seed-mongo.mjs` first), or
+- `npm run load-data` — the real committees + media team (`server/scripts/load-real-data.mjs`;
+  add `-- --clean` to also remove the demo rows). Also sets the admin + POC.
+- `npm run set-roles` — only (re)apply the admin/POC emails + init availability fields.
 
 ### 5. Vercel (frontend)
 Set `web/js/config.js` → `PROD_API_BASE` to the Render URL, then redeploy `web/`
