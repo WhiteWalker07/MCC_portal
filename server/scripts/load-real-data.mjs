@@ -119,6 +119,43 @@ const team = [
 const DEMO_COMMITTEES = ["marketing", "consult", "cultural", "mdp", "bms.cultural"].map((p) => `${p}@iimsirmaur.ac.in`);
 const DEMO_TEAM = ["asha", "vikram", "neha", "rahul", "priya", "karan", "sara"].map((p) => `${p}@iimsirmaur.ac.in`);
 
+// ── Engine config (inserted only if absent, so admin-tuned values survive) ─────
+const taskTypes = {
+  types: [
+    { task: "Photographer", requiredSkill: "Photography", points: 5, slaHours: 0, atEvent: true, requestable: true, internalAssignable: true, vertical: "Photography" },
+    { task: "Videographer", requiredSkill: "Videography", points: 8, slaHours: 0, atEvent: true, requestable: true, internalAssignable: true, vertical: "Videography" },
+    { task: "Content Writer", requiredSkill: "Content Writing", points: 3, slaHours: 12, atEvent: true, requestable: false, internalAssignable: true, vertical: "Content Writing" },
+    { task: "Photo Editor", requiredSkill: "Photo Editing", points: 3, slaHours: 24, atEvent: false, requestable: false, internalAssignable: true, vertical: "Photography" },
+    { task: "Video Editor", requiredSkill: "Video Editing", points: 5, slaHours: 48, atEvent: false, requestable: false, internalAssignable: true, vertical: "Videography" },
+    { task: "Vetter", requiredSkill: "Vetting", points: 2, slaHours: 24, atEvent: false, requestable: false, internalAssignable: true, vertical: "" },
+    { task: "Event Coordinator", requiredSkill: "Coordination", points: 4, slaHours: 0, atEvent: true, requestable: false, internalAssignable: true, vertical: "" },
+  ],
+};
+const slots = { slots: ["11:00", "14:00", "17:00"] };
+const platforms = {
+  platforms: [
+    { platform: "Instagram", handlerEmail: "mediacell@iimsirmaur.ac.in", points: 2, active: true },
+    { platform: "LinkedIn", handlerEmail: "mediacell@iimsirmaur.ac.in", points: 2, active: true },
+    { platform: "X", handlerEmail: "mediacell@iimsirmaur.ac.in", points: 2, active: true },
+  ],
+};
+const points = {
+  coordinatorPoints: 20, domainTaskPoints: 10, vetterPoints: 10, earlyWindowHours: 24,
+  earlyBonusPct: 30, lateThresholdHours: 48, latePenaltyPct: 30, subsequentDelayHours: 6, subsequentPenaltyPct: 10,
+};
+// Engine-critical settings (always ensured); generalSeq preserved on re-run.
+const SETTINGS_BASE = {
+  slaHours: 48,
+  strikeLimit: 3,
+  campusStrict: true,
+  requireApprovalAlways: false,
+  strikeAssigneeToo: false,
+  headEmail: "",
+  committeeName: "Media & Communications Committee",
+  allowedDomains: ["iimsirmaur.ac.in"],
+  defaultAcronym: "MEDIA",
+};
+
 async function main() {
   const client = new MongoClient(uri);
   await client.connect();
@@ -165,14 +202,29 @@ async function main() {
     tN++;
   }
 
+  // Engine config docs — insert only if absent (don't clobber tuned values).
+  for (const [id, data] of [
+    ["taskTypes", taskTypes],
+    ["slots", slots],
+    ["platforms", platforms],
+    ["points", points],
+  ]) {
+    await db.collection("config").updateOne({ _id: id }, { $setOnInsert: data }, { upsert: true });
+  }
+
+  // settings — always ensure base engine fields + admin/secretary; keep generalSeq.
   await db.collection("config").updateOne(
     { _id: "settings" },
-    { $set: { adminEmails: ADMIN_EMAILS, secretaryEmails: SECRETARY_EMAILS } },
+    {
+      $set: { ...SETTINGS_BASE, adminEmails: ADMIN_EMAILS, secretaryEmails: SECRETARY_EMAILS },
+      $setOnInsert: { generalSeq: 0 },
+    },
     { upsert: true }
   );
 
   console.log(`committees upserted: ${cN}`);
   console.log(`team upserted:       ${tN}`);
+  console.log(`config ensured:      taskTypes, slots, platforms, points, settings`);
   console.log(`admin:     ${ADMIN_EMAILS.join(", ")}`);
   console.log(`secretary: ${SECRETARY_EMAILS.join(", ")}`);
   console.log("Done.");
