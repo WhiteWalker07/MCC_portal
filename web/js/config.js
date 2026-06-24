@@ -9,19 +9,13 @@
  * values here are not security-sensitive.
  */
 
-// Your deployed API origin (Render). In production the frontend does NOT call
-// this directly — it uses same-origin "/api" and "/auth" paths that Vercel
-// proxies to Render (see the "rewrites" in vercel.json). That keeps the session
-// cookie FIRST-PARTY to the Vercel domain, so Safari/iOS (which block cross-site
-// cookies) no longer drop you back to the login screen. If you change your
-// Render URL, update it here AND in vercel.json.
+// 👉 Your deployed API origin (Render). The frontend calls it directly; auth uses
+// a Bearer token (not a cookie), so cross-origin works on every browser.
 const PROD_API_BASE = "https://mcc-portal.onrender.com";
 
 const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
 
-// "" => relative URLs => same-origin => Vercel proxy => Render.
-// localhost talks to the local API directly.
-export const API_BASE_URL = isLocal ? "http://localhost:8080" : "";
+export const API_BASE_URL = isLocal ? "http://localhost:8080" : PROD_API_BASE;
 
 /** Shown on the sign-in screen (display only — real enforcement is server-side). */
 export const ALLOWED_AUTH_DOMAINS = ["iimsirmaur.ac.in"];

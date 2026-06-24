@@ -8,6 +8,7 @@
 
 import { Request, Response, NextFunction } from "express";
 import { SessionUser } from "./passport";
+import { verifyToken } from "./jwt";
 import { resolveCallerRoles, CallerRoles } from "../engine/serverRoles";
 
 // Augment Express request with resolved roles (set by attachRoles).
@@ -25,11 +26,20 @@ export function getEmail(req: Request): string {
   return (user?.email || "").toLowerCase();
 }
 
+/**
+ * Authenticate via the Bearer token (stateless). Sets req.user from the token so
+ * the rest of the stack (getEmail / attachRoles / buildClientSession) is
+ * unchanged. No cookie is involved, so it works cross-origin on every browser.
+ */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  if (!req.isAuthenticated || !req.isAuthenticated() || !getEmail(req)) {
+  const header = req.get("authorization") || "";
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  const payload = match ? verifyToken(match[1]) : null;
+  if (!payload?.email) {
     res.status(401).json({ error: "Sign in required." });
     return;
   }
+  req.user = { email: payload.email, displayName: payload.name, photoURL: payload.photo };
   next();
 }
 
