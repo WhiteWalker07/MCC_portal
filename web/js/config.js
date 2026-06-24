@@ -10,7 +10,7 @@
  */
 
 // 👉 Set this to your deployed API origin, e.g. "https://mcc-portal.onrender.com"
-const PROD_API_BASE = "https://REPLACE-WITH-YOUR-RENDER-URL.onrender.com";
+const PROD_API_BASE = "https://mcc-portal.onrender.com";
 
 const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
 
