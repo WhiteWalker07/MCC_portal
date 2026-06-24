@@ -162,6 +162,12 @@ export const importTeamCsv = (rows) => mutate("/api/team/import", { rows });
 
 export const listTeamMembers = () => apiGet("/api/team");
 
+// ---- Committees ------------------------------------------------------------
+
+export const listCommittees = () => apiGet("/api/committees");
+
+export const addCommittee = (payload) => mutate("/api/committees", payload);
+
 export const setDomainHead = (email, vertical) => mutate("/api/team/head", { email, vertical });
 
 /** Flip a member between "available" (on work) and "out" (out of work / break). */

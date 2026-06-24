@@ -23,6 +23,7 @@ import { teamRouter } from "./routes/team";
 import { dashboardRouter } from "./routes/dashboard";
 import { cronRouter } from "./routes/cron";
 import { adminRouter } from "./routes/admin";
+import { committeesRouter } from "./routes/committees";
 
 async function main(): Promise<void> {
   await connect();
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
   app.use(dashboardRouter);
   app.use(cronRouter);
   app.use(adminRouter);
+  app.use(committeesRouter);
 
   // Centralized error handler.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
