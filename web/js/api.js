@@ -1,19 +1,41 @@
 /**
- * Tiny fetch wrapper around the backend API (replaces firebase.js).
+ * Tiny fetch wrapper around the backend API.
  *
- * Every call sends the session cookie (`credentials: "include"`) so the
- * cross-origin Passport session works. JSON in / JSON out; non-2xx responses
- * throw an Error carrying `.status` and `.data` so callers can branch on 401/404.
+ * Auth is a Bearer token kept in localStorage (set after Google sign-in). It's
+ * sent on every request as `Authorization: Bearer <token>` — no cookies — so the
+ * cross-origin call to the API works on every browser, including Safari/iOS.
  */
 
 import { API_BASE_URL } from "./config.js";
 
+const TOKEN_KEY = "mcc_token";
+
+export function getToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+export function setToken(t) {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+  } catch {
+    /* ignore storage errors */
+  }
+}
+export function clearToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function apiFetch(path, { method = "GET", body, headers } = {}) {
-  const opts = {
-    method,
-    credentials: "include",
-    headers: { ...(headers || {}) },
-  };
+  const opts = { method, headers: { ...(headers || {}) } };
+  const token = getToken();
+  if (token) opts.headers["Authorization"] = `Bearer ${token}`;
   if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);

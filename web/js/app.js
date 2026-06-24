@@ -11,6 +11,7 @@
  */
 
 import { getSession, signIn, signOut } from "./auth.js";
+import { setToken } from "./api.js";
 import { ALLOWED_AUTH_DOMAINS } from "./config.js";
 import { mountShell, unmountShell } from "./shell.js";
 
@@ -33,13 +34,21 @@ function showSigninError(msg) {
   els.signinError.hidden = false;
 }
 
-/** Read (and clear) an ?error=... left in the hash by the OAuth callback. */
-function consumeAuthError() {
-  const m = location.hash.match(/[?&]error=([^&]+)/);
-  if (!m) return null;
-  // Strip the query part from the hash so a refresh doesn't keep showing it.
-  history.replaceState(null, "", location.pathname + "#/");
-  return decodeURIComponent(m[1]);
+/**
+ * The OAuth callback redirects back to `/?token=...` (success) or
+ * `/?authError=...` (failure). Capture the token into localStorage, then strip
+ * the query from the URL so a refresh/bookmark doesn't keep or leak it. Returns
+ * the auth error code, if any.
+ */
+function consumeAuthRedirect() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get("token");
+  const authError = params.get("authError");
+  if (token) setToken(token);
+  if (token || authError) {
+    history.replaceState(null, "", location.pathname + (location.hash || "#/"));
+  }
+  return authError;
 }
 
 els.signinBtn.addEventListener("click", () => {
@@ -63,7 +72,7 @@ async function doSignOut() {
 async function boot() {
   show("loading");
 
-  const authError = consumeAuthError();
+  const authError = consumeAuthRedirect();
   if (authError === "domain") {
     show("signin");
     showSigninError(

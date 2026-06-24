@@ -9,7 +9,8 @@
  * values here are not security-sensitive.
  */
 
-// 👉 Set this to your deployed API origin, e.g. "https://mcc-portal.onrender.com"
+// 👉 Your deployed API origin (Render). The frontend calls it directly; auth uses
+// a Bearer token (not a cookie), so cross-origin works on every browser.
 const PROD_API_BASE = "https://mcc-portal.onrender.com";
 
 const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
