@@ -14,7 +14,12 @@ import {
   setAvailability,
   getPointScheme,
   setPointScheme,
+  listCommittees,
+  addCommittee,
 } from "../data.js";
+
+const COMMITTEE_TYPES = ["Club", "Committee", "SIG", "Office"];
+const COMMITTEE_CAMPUSES = ["MBA Campus", "BMS Campus"];
 
 const SCHEME_FIELDS = [
   ["coordinatorPoints", "Event Coordinator (pts)"],
@@ -49,6 +54,32 @@ export function renderAdmin(container, session) {
   }
 
   container.innerHTML = `
+    <section class="card stack">
+      <h1>Committees</h1>
+      <p class="muted">Add a club / committee / office. It signs in with the login email
+        and can raise Coverage requests; the acronym is the request-ID prefix
+        (e.g. <code>MKTG_1</code>). Re-adding the same email updates it (the request
+        counter is preserved).</p>
+      <p id="comm-error" class="error" hidden></p>
+      <div class="grid2">
+        <label class="field"><span class="field__label">Name</span>
+          <input class="input" id="comm-name" autocomplete="off" /></label>
+        <label class="field"><span class="field__label">Login email</span>
+          <input class="input" id="comm-email" type="email" autocomplete="off" placeholder="club@iimsirmaur.ac.in" /></label>
+        <label class="field"><span class="field__label">Acronym</span>
+          <input class="input" id="comm-acronym" autocomplete="off" placeholder="MKTG" /></label>
+        <label class="field"><span class="field__label">Type</span>
+          <select class="input" id="comm-type">${COMMITTEE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select></label>
+        <label class="field"><span class="field__label">Campus</span>
+          <select class="input" id="comm-campus">${COMMITTEE_CAMPUSES.map((c) => `<option>${c}</option>`).join("")}</select></label>
+      </div>
+      <div class="row">
+        <button type="button" class="btn btn--primary" id="comm-add">Add committee</button>
+        <span id="comm-ok" class="muted" hidden>Saved ✓</span>
+      </div>
+      <div id="comm-list"><p class="muted">Loading…</p></div>
+    </section>
+
     <section class="card stack">
       <h1>Vertical heads</h1>
       <p class="muted">Make a team member the head of a vertical. Heads can manually
@@ -93,6 +124,59 @@ export function renderAdmin(container, session) {
       <div id="scheme-grid" class="scheme-grid"><p class="muted">Loading…</p></div>
       ${session.isAdmin ? `<div class="row"><button type="button" class="btn btn--primary" id="scheme-save">Save scheme</button><span id="scheme-ok" class="muted" hidden>Saved ✓</span></div>` : ""}
     </section>`;
+
+  // ---- Committees ---------------------------------------------------------
+  const commErr = container.querySelector("#comm-error");
+  const commOk = container.querySelector("#comm-ok");
+  const commList = container.querySelector("#comm-list");
+
+  async function loadCommittees() {
+    try {
+      const { committees } = await listCommittees();
+      commList.innerHTML = committeesHtml(committees);
+    } catch (err) {
+      commList.innerHTML = `<p class="error">${esc(err.message || err)}</p>`;
+    }
+  }
+
+  container.querySelector("#comm-add").addEventListener("click", async () => {
+    commErr.hidden = true;
+    commOk.hidden = true;
+    const nameEl = container.querySelector("#comm-name");
+    const emailEl = container.querySelector("#comm-email");
+    const acrEl = container.querySelector("#comm-acronym");
+    const payload = {
+      name: nameEl.value.trim(),
+      email: emailEl.value.trim(),
+      acronym: acrEl.value.trim(),
+      type: container.querySelector("#comm-type").value,
+      campus: container.querySelector("#comm-campus").value,
+    };
+    if (!payload.name || !payload.email || !payload.acronym) {
+      commErr.textContent = "Name, login email, and acronym are required.";
+      commErr.hidden = false;
+      return;
+    }
+    const btn = container.querySelector("#comm-add");
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    try {
+      await addCommittee(payload);
+      commOk.hidden = false;
+      nameEl.value = "";
+      emailEl.value = "";
+      acrEl.value = "";
+      await loadCommittees();
+    } catch (err) {
+      commErr.textContent = err.message || String(err);
+      commErr.hidden = false;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Add committee";
+    }
+  });
+
+  loadCommittees();
 
   const textEl = container.querySelector("#csv-text");
   const fileEl = container.querySelector("#csv-file");
@@ -259,6 +343,23 @@ export function renderAdmin(container, session) {
       }
     });
   }
+}
+
+function committeesHtml(committees) {
+  if (!committees.length) return `<p class="muted">No committees yet.</p>`;
+  return `
+    <p class="muted">${committees.length} committee(s)</p>
+    <table class="roster">
+      <thead><tr><th>Name</th><th>Acronym</th><th>Type</th><th>Campus</th><th>Login email</th></tr></thead>
+      <tbody>
+        ${committees
+          .map(
+            (c) =>
+              `<tr><td>${esc(c.name)}</td><td>${esc(c.acronym)}</td><td>${esc(c.type)}</td><td>${esc(c.campus)}</td><td>${esc(c.email)}</td></tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>`;
 }
 
 function headsHtml(members, verticals) {
