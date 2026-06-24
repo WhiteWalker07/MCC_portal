@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Media Committee Portal</title>
+    <meta
+      name="description"
+      content="Workflow portal for the Media Committee at IIM Sirmaur."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/css/styles.css" />
+  </head>
+  <body>
+    <!-- Loading splash (shown until auth state is known) -->
+    <div id="loading" class="splash">
+      <span class="spinner" aria-hidden="true"></span> Loading…
+    </div>
+
+    <!-- Sign-in view -->
+    <section id="signin-view" class="signin-view" hidden>
+      <div class="signin-card card stack center">
+        <div class="signin-mark" aria-hidden="true"></div>
+        <div>
+          <h1 class="signin-title">Media Portal</h1>
+          <p class="muted signin-sub">Coverage &amp; posting requests · IIM Sirmaur</p>
+        </div>
+        <button id="signin-btn" class="btn btn--primary btn--block" type="button">
+          <span class="g-dot" aria-hidden="true"></span> Continue with Google
+        </button>
+        <p class="note">// only @iimsirmaur.ac.in accounts are accepted</p>
+        <p id="signin-error" class="error" role="alert" hidden></p>
+      </div>
+    </section>
+
+    <!-- App shell (populated by shell.js once signed in) -->
+    <div id="app-view" hidden></div>
+
+    <script type="module" src="/js/app.js"></script>
+  </body>
+</html>

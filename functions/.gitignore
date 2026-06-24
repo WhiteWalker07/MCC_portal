@@ -1,0 +1,14 @@
+# Compiled output
+lib/
+
+# Dependencies
+node_modules/
+
+# Local runtime config & secrets
+.env
+.env.local
+.secret.local
+
+# Service accounts
+*-service-account*.json
+serviceAccount*.json

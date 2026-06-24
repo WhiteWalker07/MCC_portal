@@ -1,0 +1,23 @@
+{
+  "name": "mcc-portal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Media Committee Portal — workflow portal for the Media Committee at IIM Sirmaur.",
+  "scripts": {
+    "emulators": "firebase emulators:start",
+    "emulators:persist": "firebase emulators:start --import=./.emulator-data --export-on-exit=./.emulator-data",
+    "seed": "node scripts/seed.mjs",
+    "seed:force": "node scripts/seed.mjs --force",
+    "build:functions": "npm --prefix functions run build",
+    "watch:functions": "npm --prefix functions run build:watch",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
+    "deploy:web": "vercel deploy --prod"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}

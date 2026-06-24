@@ -1,0 +1,25 @@
+name: Hourly deadline check
+
+# Pings the server's deadline-check endpoint every hour (replaces the Firebase
+# scheduled function). Render's free tier has no cron, so we drive it from here.
+#
+# Setup: add two repo secrets (Settings → Secrets and variables → Actions):
+#   API_BASE_URL  e.g. https://mcc-portal.onrender.com
+#   CRON_SECRET   same value as the server's CRON_SECRET env var
+#
+# Note: GitHub cron is best-effort and runs in UTC; "0 * * * *" is hourly.
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /api/cron/deadline-check
+        run: |
+          curl -fsS -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.API_BASE_URL }}/api/cron/deadline-check"

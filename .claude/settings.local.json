@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(firebase --version)",
+      "Bash(node scripts/seed.mjs)",
+      "Bash(npm install *)",
+      "PowerShell(cd \"F:\\\\MCC Portal\\\\functions\"; node --version; npx tsc --noEmit; Write-Output \"EXIT=$LASTEXITCODE\")"
+    ]
+  }
+}

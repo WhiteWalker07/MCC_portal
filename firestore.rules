@@ -1,0 +1,144 @@
+rules_version = '2';
+
+// =============================================================================
+// Media Committee Portal — Firestore Security Rules (Phase 3, full ruleset)
+// =============================================================================
+// Enforces all role-based access from DATA, not the UI:
+//   - committees/team keyed by login email -> O(1) membership checks.
+//   - requester reads only their own requests; team member reads only their own
+//     tasks; coordinator reads tasks/requests for events they coordinate
+//     (via the denormalized `coordinatorEmail`); secretary reads the queue.
+//   - requests.status, refCode, campus, coordinatorEmail and tasks.points/status
+//     are ENGINE-ONLY. The Admin SDK (Cloud Functions, seed) bypasses these
+//     rules, so the engine owns those fields.
+//   - The ONLY client-driven state changes are dedicated, rule-checked writes:
+//       * committee creates a request at status 'New'
+//       * assignee marks their own task DONE (from CONFIRMED/LATE)
+//       * coordinator/secretary sets `reassignTo` on their event's task
+//       * secretary writes a `decision` (approve/reject) on a pending request;
+//         the engine reacts and sets the real status.
+//
+// Domain restriction (@iimsirmaur.ac.in) is enforced at the auth/UI layer; only
+// provisioned institute identities can do anything meaningful here regardless.
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers ----------------------------------------------------------
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+    function userEmail() {
+      return request.auth.token.email;
+    }
+    function settings() {
+      return get(/databases/$(database)/documents/config/settings).data;
+    }
+    function isSecretary() {
+      return signedIn() && (userEmail() in settings().secretaryEmails);
+    }
+    function isCommittee() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/committees/$(userEmail()));
+    }
+    function changed(allowed) {
+      // True if the update touches only the allowed keys.
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+    }
+
+    // ---- committees: own (id == login email) or secretary; engine writes ---
+    match /committees/{email} {
+      allow read: if signedIn() && (email == userEmail() || isSecretary());
+      allow write: if false;
+    }
+
+    // ---- team: own or secretary; engine writes ----------------------------
+    // (The Phase 8 reassign picker is a server callable, so broad team read is
+    //  not granted to clients here.)
+    match /team/{email} {
+      allow read: if signedIn() && (email == userEmail() || isSecretary());
+      allow write: if false;
+    }
+
+    // ---- config: pipeline + options + settings; read-only for all users ----
+    match /config/{doc} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ---- requests ---------------------------------------------------------
+    match /requests/{id} {
+      allow read: if signedIn() && (
+        resource.data.contactEmail == userEmail() ||
+        resource.data.get('coordinatorEmail', '') == userEmail() ||
+        isSecretary()
+      );
+
+      // Any signed-in institute user may create a POST request for themselves.
+      // COVERAGE is reserved to committees. Engine-only fields (refCode, campus,
+      // coordinatorEmail, status transitions) cannot be set: the key allowlist
+      // forbids them.
+      allow create: if signedIn()
+        && request.resource.data.contactEmail == userEmail()
+        && request.resource.data.status == 'New'
+        && (
+             request.resource.data.type == 'Post'
+             || (request.resource.data.type == 'Coverage' && isCommittee())
+           )
+        && request.resource.data.keys().hasOnly([
+             'type', 'eventName', 'eventStart', 'eventEnd', 'venue', 'requester',
+             'contactEmail', 'rolesNeeded', 'platforms', 'contentLinks', 'notes',
+             'status', 'createdAt'
+           ]);
+
+      // Secretary approve/reject: writes only a `decision` while the request is
+      // pending. The engine reads `decision` and sets the real status.
+      allow update: if isSecretary()
+        && resource.data.status == 'Pending for POC approval'
+        && changed(['decision', 'decisionBy', 'decisionAt', 'rejectReason'])
+        && request.resource.data.get('decision', '') in ['approved', 'rejected'];
+
+      allow delete: if false;
+    }
+
+    // ---- tasks ------------------------------------------------------------
+    match /tasks/{id} {
+      allow read: if signedIn() && (
+        resource.data.get('email', '') == userEmail() ||
+        resource.data.get('coordinatorEmail', '') == userEmail() ||
+        isSecretary()
+      );
+
+      allow create: if false;
+
+      allow update: if
+        // (a) assignee marks their own task DONE (late-but-delivered allowed)
+        (
+          resource.data.get('email', '') == userEmail()
+          && resource.data.status in ['CONFIRMED', 'LATE']
+          && request.resource.data.status == 'DONE'
+          && changed(['status', 'completedAt'])
+        )
+        ||
+        // (b) coordinator (of this event) or secretary requests a reassignment
+        (
+          (isSecretary() || resource.data.get('coordinatorEmail', '') == userEmail())
+          && changed(['reassignTo'])
+        );
+
+      allow delete: if false;
+    }
+
+    // ---- activityLog: secretary read (audit/dashboard); engine writes ------
+    match /activityLog/{id} {
+      allow read: if isSecretary();
+      allow write: if false;
+    }
+
+    // ---- default deny -----------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

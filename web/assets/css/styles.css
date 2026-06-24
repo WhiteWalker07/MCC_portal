@@ -1,0 +1,1254 @@
+/* =============================================================================
+   Media Committee Portal — design system
+   -----------------------------------------------------------------------------
+   Warm, low-chrome UI per the Media Portal wireframes. Hanken Grotesk for UI,
+   Space Mono for codes/tags/system notes. Indigo (#5b61d6) primary, dark
+   (#2c2b28) secondary actions, soft status chips. Mobile-first.
+   Re-theme by editing the tokens in :root.
+   ============================================================================= */
+
+:root {
+  --font-ui: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Space Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Surfaces */
+  --color-bg: #e8e7e3;
+  --color-surface: #ffffff;
+  --color-surface-2: #faf9f6; /* input fills / subtle panels */
+  --color-panel: #f4f3f0;
+
+  /* Ink */
+  --color-text: #2c2b28;
+  --color-secondary: #56544d;
+  --color-muted: #76746c;
+  --color-faint: #9a988f;
+
+  /* Lines */
+  --color-border: #d4d2cb;
+  --color-border-soft: #eceae4;
+
+  /* Primary (indigo) */
+  --color-primary: #5b61d6;
+  --color-primary-contrast: #ffffff;
+  --color-primary-soft: #eceaff;
+  --color-primary-soft-border: #d7d6f7;
+  --color-primary-tint: #f0eff9;
+
+  /* Dark action */
+  --color-dark: #2c2b28;
+
+  /* States */
+  --color-danger: #c14b3f;
+  --color-danger-soft: #fdf4f2;
+  --color-danger-border: #f0c9c3;
+  --color-warn: #b06a1f;
+  --color-warn-soft: #fbf3e6;
+  --color-warn-border: #f0dcbb;
+  --color-success: #1f7a4d;
+  --color-success-soft: #edf7f1;
+  --color-success-border: #c5e6d4;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 9px;
+  --radius-sm: 7px;
+  --radius-pill: 999px;
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.07);
+  --shadow-lg: 0 3px 10px rgba(16, 24, 40, 0.09);
+  --maxw: 920px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* The `hidden` attribute must always win, even over components that set
+   display (e.g. .splash / .signin-view use flex). Without this the loading and
+   sign-in layers never hide and every view stacks into one scrolling page. */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  color: var(--color-text);
+  background: var(--color-bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* ----------------------------------------------------------------------------
+   App bar (sticky topbar + nav)
+   ---------------------------------------------------------------------------- */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  max-width: var(--maxw);
+  margin: 0 auto;
+}
+
+.topbar__left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+  font-size: 0.98rem;
+  white-space: nowrap;
+}
+
+.topbar__brand::before {
+  content: "";
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--color-dark);
+  flex: 0 0 auto;
+}
+
+.topbar__tag {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+}
+
+.topbar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.topbar__user {
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  max-width: 30vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.committee-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-soft);
+  flex: 0 0 auto;
+}
+
+.nav {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  max-width: var(--maxw);
+  margin: 0 auto;
+  border-top: 1px solid var(--color-border-soft);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.nav::-webkit-scrollbar {
+  display: none;
+}
+
+.nav__link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.nav__link--active {
+  color: var(--color-text);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-soft-border);
+}
+
+/* Desktop shows the full text label; icon + short label are mobile-only. */
+.nav__icon,
+.nav__short {
+  display: none;
+}
+
+.nav__icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ----------------------------------------------------------------------------
+   Layout
+   ---------------------------------------------------------------------------- */
+.container {
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--space-5);
+}
+
+.stack > * + * {
+  margin-top: var(--space-4);
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.center {
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.h2 {
+  margin: var(--space-2) 0 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+/* System / engine note (Space Mono) */
+.note {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-warn);
+  background: var(--color-warn-soft);
+  border: 1px solid var(--color-warn-border);
+  border-radius: 5px;
+  padding: 5px 8px;
+  margin: 0;
+  display: inline-block;
+}
+
+/* ----------------------------------------------------------------------------
+   Buttons
+   ---------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 42px;
+  padding: 0 var(--space-4);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: filter 0.12s ease, background 0.12s ease;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(0.98);
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.btn--dark {
+  background: var(--color-dark);
+  border-color: var(--color-dark);
+  color: #fff;
+}
+
+.btn--danger {
+  background: var(--color-surface);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger);
+}
+
+.btn--sm {
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  font-size: 0.82rem;
+}
+
+.btn--block {
+  width: 100%;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.g-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0.7;
+}
+
+/* ----------------------------------------------------------------------------
+   Loading splash
+   ---------------------------------------------------------------------------- */
+.splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 60vh;
+  color: var(--color-muted);
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Sign-in
+   ---------------------------------------------------------------------------- */
+.signin-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-4);
+}
+
+.signin-card {
+  width: 100%;
+  max-width: 360px;
+  gap: var(--space-4);
+}
+
+.signin-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: var(--color-dark);
+  margin: var(--space-2) auto 0;
+}
+
+.signin-title {
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.signin-sub {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+}
+
+.error {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+/* ----------------------------------------------------------------------------
+   View header + badges
+   ---------------------------------------------------------------------------- */
+.view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.view-head h1 {
+  font-size: 1.2rem;
+}
+
+.badges {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-primary-soft-border);
+}
+
+/* ----------------------------------------------------------------------------
+   Forms
+   ---------------------------------------------------------------------------- */
+.field {
+  display: block;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.field__label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  margin-bottom: var(--space-1);
+}
+
+.input {
+  width: 100%;
+  min-height: 42px;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+textarea.input {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+
+/* Segmented control (request type toggle) */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  margin: 0;
+}
+
+.seg legend {
+  display: none;
+}
+
+.seg__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.seg__opt input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.seg__opt:has(input:checked) {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* Chip toggles (roles / platforms) */
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 6px 13px;
+  border-radius: var(--radius-pill);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer;
+  user-select: none;
+}
+
+.check input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.check:has(input:checked) {
+  background: var(--color-dark);
+  border-color: var(--color-dark);
+  color: #fff;
+}
+
+.check:has(input:checked)::after {
+  content: "✓";
+  font-size: 0.72rem;
+}
+
+/* ----------------------------------------------------------------------------
+   Lists (My Requests, Approvals, Assignments)
+   ---------------------------------------------------------------------------- */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list__item + .list__item {
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.list__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--radius-sm);
+}
+
+.list__link:hover {
+  background: var(--color-surface-2);
+}
+
+.list__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.list__title {
+  font-weight: 600;
+}
+
+.list__sub {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------------------
+   Detail (definition list)
+   ---------------------------------------------------------------------------- */
+.back {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-primary);
+}
+
+.dl {
+  margin: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.dl > div {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.dl dt {
+  color: var(--color-faint);
+  font-size: 0.8rem;
+}
+
+.dl dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+/* ----------------------------------------------------------------------------
+   Lifecycle stepper (My Requests detail)
+   ---------------------------------------------------------------------------- */
+.stepper {
+  display: flex;
+  margin: var(--space-2) 0 var(--space-4);
+}
+
+.stepper__stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  position: relative;
+}
+
+.stepper__dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #e3e2dd;
+  z-index: 1;
+}
+
+.stepper__stage[data-state="done"] .stepper__dot {
+  background: var(--color-dark);
+}
+
+.stepper__stage[data-state="current"] .stepper__dot {
+  width: 19px;
+  height: 19px;
+  background: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft-border);
+}
+
+.stepper__stage:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  width: 100%;
+  height: 2px;
+  background: #e3e2dd;
+  z-index: 0;
+}
+
+.stepper__stage.is-filled::after {
+  background: var(--color-dark);
+}
+
+.stepper__label {
+  font-size: 0.62rem;
+  color: var(--color-faint);
+  text-align: center;
+}
+
+.stepper__stage[data-state="current"] .stepper__label {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.stepper-rejected {
+  display: inline-block;
+  font-weight: 700;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  margin-bottom: var(--space-3);
+}
+
+/* ----------------------------------------------------------------------------
+   Roster contact cards
+   ---------------------------------------------------------------------------- */
+.roster-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.contact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-primary-tint);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.contact__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.contact__name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.contact__meta {
+  font-size: 0.7rem;
+  color: var(--color-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact__call {
+  flex: 0 0 auto;
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary-soft-border);
+  border-radius: 6px;
+  padding: 5px 11px;
+}
+
+/* Generic table (rosters / results / posts) */
+.roster {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.roster th,
+.roster td {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border-soft);
+  word-break: break-word;
+}
+
+.roster th {
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ----------------------------------------------------------------------------
+   Task cards (My Tasks)
+   ---------------------------------------------------------------------------- */
+.tcards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tcard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+.tcard--late {
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-soft);
+}
+
+.tcard__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.tcard__title {
+  font-size: 0.96rem;
+  font-weight: 700;
+}
+
+.tcard__sub {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  margin-top: 1px;
+}
+
+.tcard__chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+
+.chip-pts {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--color-secondary);
+  background: #ece9e3;
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+
+.chip-due {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+}
+
+.chip-due.is-late {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------------------------------
+   Dashboard — stat cards + fairness bars
+   ---------------------------------------------------------------------------- */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Point scheme editor (Admin) */
+.scheme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+}
+
+@media (min-width: 640px) {
+  .scheme-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Vertical heads (Admin) */
+.heads {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.head-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius);
+}
+
+.head-row__v {
+  font-weight: 700;
+}
+
+.head-row__cur {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.head-sel {
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .head-row {
+    grid-template-columns: 130px 120px 1fr auto auto;
+  }
+  .head-sel {
+    width: auto;
+    min-width: 160px;
+  }
+}
+
+.filter__sel {
+  width: auto;
+  min-width: 130px;
+  min-height: 38px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2);
+}
+
+.stat {
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  background: var(--color-surface-2);
+}
+
+.stat__label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-faint);
+}
+
+.stat__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-top: 4px;
+}
+
+.stat__sub {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.bar-row__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-size: 0.88rem;
+}
+
+.bar-row__name {
+  font-weight: 600;
+}
+
+.bar-row__val {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--color-text);
+  flex: 0 0 auto;
+}
+
+.bar {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border-soft);
+  overflow: hidden;
+  margin: 5px 0 3px;
+}
+
+.bar__fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+}
+
+.bar__fill--warn {
+  background: var(--color-warn);
+}
+
+.bar-row__meta {
+  font-size: 0.72rem;
+  color: var(--color-faint);
+}
+
+@media (min-width: 768px) {
+  .stat-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Status chips (request + task statuses)
+   ---------------------------------------------------------------------------- */
+.status {
+  display: inline-block;
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--color-muted);
+  background: #ece9e3;
+  border: 1px solid transparent;
+}
+
+/* Request lifecycle */
+.status[data-status="Pending for POC approval"] {
+  color: var(--color-warn);
+  background: var(--color-warn-soft);
+  border-color: var(--color-warn-border);
+}
+.status[data-status="Request Accepted"] {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-soft-border);
+}
+.status[data-status="Event Covered"] {
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border-color: var(--color-success-border);
+}
+.status[data-status="Ready To post"] {
+  color: #6d3bd1;
+  background: #f3effb;
+  border-color: #ddd1f3;
+}
+.status[data-status="Posted"] {
+  color: var(--color-muted);
+  background: #ece9e3;
+}
+.status[data-status="Rejected"] {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger-border);
+}
+
+/* Task statuses */
+.status[data-status="CONFIRMED"] {
+  color: #fff;
+  background: var(--color-dark);
+}
+.status[data-status="DONE"] {
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border-color: var(--color-success-border);
+}
+.status[data-status="LATE"] {
+  color: #fff;
+  background: var(--color-danger);
+}
+.status[data-status="SCHEDULED"] {
+  color: #6d3bd1;
+  background: #f3effb;
+  border-color: #ddd1f3;
+}
+.status[data-status="UNFILLED"] {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger-border);
+}
+
+/* ----------------------------------------------------------------------------
+   Assignments — request groups + disclosure panels
+   ---------------------------------------------------------------------------- */
+.asg-group + .asg-group {
+  margin-top: var(--space-5);
+  border-top: 1px solid var(--color-border-soft);
+  padding-top: var(--space-4);
+}
+
+.task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.task__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.panel {
+  margin-top: var(--space-2);
+}
+
+.panel > summary {
+  display: inline-flex;
+  width: auto;
+  cursor: pointer;
+  list-style: none;
+}
+
+.panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.panel-body {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius);
+  background: var(--color-surface-2);
+}
+
+/* ----------------------------------------------------------------------------
+   Wider screens
+   ---------------------------------------------------------------------------- */
+@media (min-width: 768px) {
+  .container {
+    padding: var(--space-6) var(--space-4);
+  }
+  .topbar__tag {
+    max-width: 260px;
+  }
+  .topbar__user {
+    max-width: 220px;
+  }
+  .grid2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Phones — nav becomes a fixed bottom tab bar (app-like)
+   ---------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    max-width: none;
+    justify-content: space-around;
+    gap: 0;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--color-border);
+    border-bottom: none;
+    background: var(--color-surface);
+    box-shadow: 0 -1px 6px rgba(16, 24, 40, 0.06);
+    z-index: 20;
+  }
+
+  .nav__link {
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+    padding: 4px 2px;
+    border-radius: 10px;
+    border: none;
+    font-size: 0.6rem;
+    color: var(--color-muted);
+  }
+
+  .nav__link--active {
+    background: none;
+    border: none;
+    color: var(--color-primary);
+  }
+
+  .nav__icon {
+    display: block;
+  }
+
+  .nav__full {
+    display: none;
+  }
+
+  .nav__short {
+    display: block;
+    line-height: 1;
+  }
+
+  /* Clear the fixed bottom bar; compact the header. */
+  .container {
+    padding-bottom: 84px;
+  }
+
+  .topbar__user {
+    display: none;
+  }
+}
