@@ -3,9 +3,8 @@
 This is the re-platformed portal: **Django + SQLite**, server-rendered
 templates (no SPA, no JS build), meant to run on **one PC in the computer lab**
 and be reached over the **college WiFi**. It replaces the Express/MongoDB/
-Vercel stack in `../server` and `../web`, which stays in the repo untouched
-until this is verified end-to-end (see the migration plan for the cutover
-checklist).
+Vercel stack (and, before that, the original Firebase build) — see the root
+[`README.md`](../README.md)'s change history for the full lineage.
 
 Full context: [`../docs/PRD.md`](../docs/PRD.md) (what the system does),
 [`../docs/PIC.md`](../docs/PIC.md) (who owns what),
@@ -70,31 +69,30 @@ integration tests, all green) and `python manage.py check --deploy`.
 
 ## Deploying on the lab PC
 
-1. **Static IP / DHCP reservation** for the PC, so the DNS record stays valid.
-2. **IT adds a DNS record** — a subdomain (e.g. `mcc.iimsirmaur.ac.in`)
-   pointing at the PC's LAN IP. This is required: Google OAuth refuses a
-   redirect URI on a bare private IP, only a real hostname or `localhost`.
-3. **TLS via Let's Encrypt DNS-01** (no inbound port needs to be exposed) —
-   [Caddy](https://caddyserver.com/) with a DNS provider plugin renews
-   automatically; see the migration plan for the Caddyfile shape. Whoever
-   configures this becomes the certificate's named owner in
-   `../docs/PIC.md` §3 — a lapsed cert silently breaks sign-in.
-4. **Set env vars** for production: `PORTAL_HOST=<the subdomain>`,
-   `PORTAL_HTTPS=1`, `DJANGO_DEBUG=0`, the Google client id/secret registered
-   against that subdomain's callback URL.
-5. `python manage.py collectstatic --noinput`, then serve the app with
-   **Waitress** (gunicorn doesn't run on Windows):
-   `waitress-serve --host=127.0.0.1 --port=8000 mccportal.wsgi:application`
-6. Run Waitress and Caddy as **Windows services** (e.g. via NSSM) so a reboot
-   or logout doesn't take the portal offline. **Disable sleep/hibernate** on
-   the PC — a sleeping host is an outage.
-7. Firewall: allow inbound TCP 443 only; Waitress stays bound to loopback.
-8. **Schedule the recurring jobs** with Windows Task Scheduler (see each
-   command's docstring for the exact `schtasks` invocation):
-   - `manage.py deadline_check` — hourly. Replaces the old GitHub Actions cron.
-   - `manage.py backup_db` — nightly, pointed at `BACKUP_DIR` on a **second
-     drive or network share**. Restore one into a scratch copy periodically —
-     an untested backup is not a backup.
+The lab PC is a **blank Ubuntu Server 24.04 LTS** machine (chosen over Windows
+specifically because it's a dedicated box with no other use — native
+`systemd` for service supervision and scheduled jobs beats fighting Windows
+Update reboots and NSSM on an unattended server).
+
+**[`deploy/setup.sh`](deploy/setup.sh) is the actual setup** — one script that
+checks and installs every dependency (Python, Caddy, `ufw`, …), sets the app
+up as a `systemd` service with `gunicorn`, wires the hourly deadline sweep and
+nightly backup as `systemd` timers, configures the firewall, and disables
+sleep. Safe to re-run.
+
+```bash
+git clone https://github.com/WhiteWalker07/MCC_portal.git
+cd MCC_portal/portal
+cp .env.example .env && nano .env    # GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET at minimum
+sudo bash deploy/setup.sh
+```
+
+**[`deploy/README.md`](deploy/README.md)** covers everything that script
+can't do for you — the DNS-01 HTTPS setup (needs IT to name a DNS provider
+first), registering the real Google OAuth redirect URI, day-to-day operations
+(deploying an update, checking logs), and testing a backup restore. Whoever
+runs `setup.sh` and picks the DNS-01 provider becomes that certificate's named
+owner in `../docs/PIC.md` §3 — a lapsed cert silently breaks sign-in.
 
 ## Roles are still data, not code
 
