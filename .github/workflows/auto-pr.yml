@@ -1,0 +1,43 @@
+name: Auto-open develop -> main PR
+
+# Opens (or just leaves open) a pull request from develop into main on every
+# push to develop, so a merge never needs a manually-created, manually-scoped
+# personal access token — GITHUB_TOKEN is minted by Actions itself, scoped
+# to this repo, for the duration of the run only, and needs nothing set up
+# by hand.
+#
+# Deliberately does NOT auto-merge: someone still reviews and clicks merge.
+# This only removes the "open the PR" click, not the "approve the change" one.
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Open a PR if one isn't already open
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # `// empty` matters: with no open PR, `.[0].number` alone would print
+          # the literal string "null", which `[ -n ... ]` treats as non-empty
+          # and the script would wrongly conclude a PR already exists.
+          existing="$(gh pr list --base main --head develop --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "PR #$existing is already open for develop -> main; nothing to do (new commits show up on it automatically)."
+            exit 0
+          fi
+
+          gh pr create \
+            --base main \
+            --head develop \
+            --title "Sync develop into main" \
+            --body "Auto-opened by .github/workflows/auto-pr.yml on every push to \`develop\`. Review and merge when ready — this workflow never merges on its own."
