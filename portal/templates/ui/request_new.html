@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}New Request — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <h1>New Request</h1>
+  <p class="muted">
+    {% if is_committee %}{{ portal_roles.committee.name }} · {{ portal_roles.committee.acronym }} · {{ portal_roles.committee.campus }} · {{ user.email }}
+    {% else %}{{ user.email }} · Post request{% endif %}
+  </p>
+
+  <form method="post" class="stack" novalidate>
+    {% csrf_token %}
+
+    <fieldset class="seg">
+      <legend class="field__label">Request type</legend>
+      {% for value, label in form.type.field.choices %}
+        <label class="seg__opt">
+          <input type="radio" name="type" value="{{ value }}" {% if form.type.value == value or forloop.first and not form.type.value %}checked{% endif %}
+                 onchange="document.getElementById('coverage-fields').hidden = (this.value !== 'Coverage')"> {{ label }}
+        </label>
+      {% endfor %}
+    </fieldset>
+    {% if not is_committee %}<p class="note">// coverage requests are reserved to committees</p>{% endif %}
+    {% for error in form.type.errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+    <label class="field">
+      <span class="field__label">Event / title name</span>
+      <input class="input" type="text" name="event_name" value="{{ form.event_name.value|default:'' }}" autocomplete="off" />
+    </label>
+    {% for error in form.event_name.errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+    <div id="coverage-fields" class="stack" {% if form.type.value != "Coverage" %}hidden{% endif %}>
+      <div class="grid2">
+        <label class="field">
+          <span class="field__label">Event start</span>
+          {{ form.event_start }}
+        </label>
+        <label class="field">
+          <span class="field__label">Event end</span>
+          {{ form.event_end }}
+        </label>
+      </div>
+      {% for error in form.event_start.errors %}<p class="error">{{ error }}</p>{% endfor %}
+      {% for error in form.event_end.errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+      <label class="field">
+        <span class="field__label">Venue</span>
+        <input class="input" type="text" name="venue" value="{{ form.venue.value|default:'' }}" autocomplete="off" />
+      </label>
+
+      <fieldset class="field">
+        <legend class="field__label">Roles needed</legend>
+        <div class="checks">
+          {% for value, label in form.roles_needed.field.choices %}
+            <label class="check">
+              <input type="checkbox" name="roles_needed" value="{{ value }}"
+                {% if value in form.roles_needed.value %}checked{% endif %}> {{ label }}
+            </label>
+          {% endfor %}
+        </div>
+        {% for error in form.roles_needed.errors %}<p class="error">{{ error }}</p>{% endfor %}
+      </fieldset>
+    </div>
+
+    <fieldset class="field">
+      <legend class="field__label">Platforms <span class="muted">(where to post)</span></legend>
+      <div class="checks">
+        {% for value, label in form.platforms.field.choices %}
+          <label class="check">
+            <input type="checkbox" name="platforms" value="{{ value }}"
+              {% if value in form.platforms.value %}checked{% endif %}> {{ label }}
+          </label>
+        {% endfor %}
+      </div>
+      {% for error in form.platforms.errors %}<p class="error">{{ error }}</p>{% endfor %}
+    </fieldset>
+
+    <label class="field">
+      <span class="field__label">Content links <span class="muted">(optional for Coverage, required for Post)</span></span>
+      <textarea class="input" name="content_links" rows="2" placeholder="Drive / links to assets…">{{ form.content_links.value|default:'' }}</textarea>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Requester</span>
+      <input class="input" type="text" name="requester" value="{{ form.requester.value|default:'' }}" autocomplete="off" />
+    </label>
+
+    <label class="field">
+      <span class="field__label">Notes</span>
+      <textarea class="input" name="notes" rows="2">{{ form.notes.value|default:'' }}</textarea>
+    </label>
+
+    <p class="muted">The Request ID and status are assigned automatically.</p>
+    {% if form.non_field_errors %}<p class="error">{{ form.non_field_errors|join:" " }}</p>{% endif %}
+    <div class="row">
+      <button type="submit" class="btn btn--primary">Submit request</button>
+      <a class="btn btn--sm" href="{% url 'request-list' %}">Cancel</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

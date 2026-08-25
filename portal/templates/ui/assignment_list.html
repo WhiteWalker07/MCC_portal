@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Assignments — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <h1>Assignments</h1>
+  {% if requests %}
+    <ul class="list">
+      {% for r in requests %}
+        <li class="list__item">
+          <a class="list__link" href="{% url 'assignment-detail' r.pk %}">
+            <span class="list__main">
+              <span class="list__title">{{ r.event_name|default:"(untitled)" }}</span>
+              <span class="list__sub">{{ r.ref_code }} · {{ r.type }} · {{ r.tasks.count }} task(s)</span>
+            </span>
+            <span class="status" data-status="{{ r.status }}">{{ r.status }}</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Nothing to assign right now.</p>
+  {% endif %}
+</section>
+
+{% if strike_form %}
+<section class="card stack">
+  <h2 class="h2">Issue a strike</h2>
+  <p class="muted">Strikes normally come only from the automated deadline sweep. Use this for a
+    deliberate call outside that — the reason is recorded in the activity log.
+    {% if portal_roles.is_domain_head and not portal_roles.is_staff_side %}You can strike members of your own vertical ({{ portal_roles.domain_head_of }}).{% endif %}</p>
+  <form method="post" action="{% url 'issue-strike' %}" class="row">
+    {% csrf_token %}
+    {{ strike_form.member_email }}
+    {{ strike_form.reason }}
+    <button type="submit" class="btn btn--danger btn--sm">Issue strike</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

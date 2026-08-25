@@ -1,0 +1,20 @@
+# MCC Portal — Django dependencies.
+#
+# Deliberately few. Everything here earns its place:
+#   django           the framework (5.2 LTS; 5.1+ is required for the SQLite
+#                    OPTIONS["init_command"] / ["transaction_mode"] we rely on)
+#   django-allauth   Google OAuth sign-in (replaces passport-google-oauth20)
+#   whitenoise       serves static files from Django, so the reverse proxy
+#                    (Caddy) only has to terminate TLS
+#   waitress         WSGI server that actually works on Windows (gunicorn doesn't)
+#
+# Calendar integration is optional and auto-falls back to logging when its
+# credentials aren't configured, so its dependency is optional too — see
+# requirements-calendar.txt.
+
+Django==5.2.*
+# The [socialaccount] extra pulls requests/PyJWT/cryptography, which the Google
+# provider needs to complete the handshake and verify the returned ID token.
+django-allauth[socialaccount]==65.*
+whitenoise==6.*
+waitress==3.*

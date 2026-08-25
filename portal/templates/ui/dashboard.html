@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <h1>Dashboard</h1>
+
+  <form method="get" class="filters">
+    <select class="input filter__sel" name="period">
+      <option value="all" {% if filters.period == "all" %}selected{% endif %}>All time</option>
+      <option value="7d" {% if filters.period == "7d" %}selected{% endif %}>Last 7 days</option>
+      <option value="30d" {% if filters.period == "30d" %}selected{% endif %}>Last 30 days</option>
+      <option value="90d" {% if filters.period == "90d" %}selected{% endif %}>Last 90 days</option>
+      <option value="month" {% if filters.period == "month" %}selected{% endif %}>This month</option>
+    </select>
+    <select class="input filter__sel" name="campus">
+      <option value="all" {% if filters.campus == "all" %}selected{% endif %}>All campuses</option>
+      <option value="MBA Campus" {% if filters.campus == "MBA Campus" %}selected{% endif %}>MBA Campus</option>
+      <option value="BMS Campus" {% if filters.campus == "BMS Campus" %}selected{% endif %}>BMS Campus</option>
+    </select>
+    <select class="input filter__sel" name="year">
+      <option value="all" {% if filters.year == "all" %}selected{% endif %}>All years</option>
+      <option value="1" {% if filters.year == "1" %}selected{% endif %}>Year 1</option>
+      <option value="2" {% if filters.year == "2" %}selected{% endif %}>Year 2</option>
+    </select>
+    <select class="input filter__sel" name="vertical">
+      <option value="all" {% if filters.vertical == "all" %}selected{% endif %}>All verticals</option>
+      <option value="Photography" {% if filters.vertical == "Photography" %}selected{% endif %}>Photography</option>
+      <option value="Videography" {% if filters.vertical == "Videography" %}selected{% endif %}>Videography</option>
+      <option value="Graphic Designs" {% if filters.vertical == "Graphic Designs" %}selected{% endif %}>Graphic Designs</option>
+      <option value="Content Writing" {% if filters.vertical == "Content Writing" %}selected{% endif %}>Content Writing</option>
+    </select>
+    <button type="submit" class="btn btn--sm">Apply</button>
+  </form>
+
+  <div class="stat-grid">
+    <div class="stat"><span class="stat__value">{{ stats.totals.active_members }}</span><span class="stat__label">Active members</span></div>
+    <div class="stat"><span class="stat__value">{{ stats.totals.total_points }}</span><span class="stat__label">Total points</span></div>
+    <div class="stat"><span class="stat__value">{{ stats.totals.tasks_completed }}</span><span class="stat__label">Tasks completed</span></div>
+    <div class="stat">
+      <span class="stat__value">{% if stats.totals.on_time_rate is not None %}{{ stats.totals.on_time_rate }}%{% else %}—{% endif %}</span>
+      <span class="stat__label">On-time rate</span>
+    </div>
+    <div class="stat">
+      <span class="stat__value">{% if stats.totals.avg_turnaround_hours is not None %}{{ stats.totals.avg_turnaround_hours }}h{% else %}—{% endif %}</span>
+      <span class="stat__label">Avg turnaround</span>
+    </div>
+    <div class="stat"><span class="stat__value">{{ stats.totals.open_late }}</span><span class="stat__label">Open &amp; late</span></div>
+    <div class="stat"><span class="stat__value">{{ stats.totals.total_requests }}</span><span class="stat__label">Requests</span></div>
+  </div>
+</section>
+
+<section class="card stack">
+  <h2 class="h2">Leaderboard</h2>
+  {% if stats.leaderboard %}
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Member</th><th>Vertical</th><th>Campus</th><th>Points</th><th>Strikes</th><th>Done</th><th>On-time</th></tr></thead>
+        <tbody>
+          {% for row in stats.leaderboard %}
+            <tr{% if not row.active %} style="opacity:.55"{% endif %}>
+              <td>{{ row.name }}</td>
+              <td>{{ row.vertical|default:"—" }}</td>
+              <td>{{ row.campus|default:"—" }}</td>
+              <td>{{ row.points }}</td>
+              <td>{{ row.strikes }}</td>
+              <td>{{ row.done }}</td>
+              <td>{% if row.on_time_pct is not None %}{{ row.on_time_pct }}%{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No members match these filters.</p>
+  {% endif %}
+</section>
+
+<section class="card stack">
+  <h2 class="h2">By vertical</h2>
+  {% if stats.by_vertical %}
+    <div class="bars">
+      {% for row in stats.by_vertical %}
+        <div class="bar-row">
+          <div class="bar-row__head"><span class="bar-row__name">{{ row.vertical }}</span><span class="bar-row__val">{{ row.points }} pts</span></div>
+          <div class="bar-row__meta">{{ row.members }} member(s) · {{ row.done }} done</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">No data.</p>
+  {% endif %}
+</section>
+
+<section class="card stack">
+  <h2 class="h2">Requests by status</h2>
+  {% if stats.requests_by_status %}
+    <ul class="list">
+      {% for status, count in stats.requests_by_status.items %}
+        <li class="list__item"><span class="status" data-status="{{ status }}">{{ status }}</span> <span class="muted">{{ count }}</span></li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No requests in this window.</p>
+  {% endif %}
+</section>
+{% endblock %}

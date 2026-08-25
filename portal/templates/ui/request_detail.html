@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}{{ request_obj.event_name|default:"Request" }} — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <a class="back" href="{% url 'request-list' %}">← My Requests</a>
+
+  <div class="view-head">
+    <h1>{{ request_obj.event_name|default:"(untitled)" }}</h1>
+    <span class="status" data-status="{{ request_obj.status }}">{{ request_obj.status }}</span>
+  </div>
+
+  {% if request_obj.status == "Rejected" %}
+    <div class="stepper-rejected">Rejected{% if request_obj.reject_reason %} — {{ request_obj.reject_reason }}{% endif %}</div>
+  {% else %}
+    <div class="stepper">
+      {% for stage in stages %}
+        <div class="stepper__stage{% if stage.state == 'done' %} is-filled{% endif %}" data-state="{{ stage.state }}">
+          <span class="stepper__dot"></span><span class="stepper__label">{{ stage.label }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <dl class="dl">
+    <div><dt>Request ID</dt><dd>{{ request_obj.ref_code|default:"pending" }}</dd></div>
+    <div><dt>Type</dt><dd>{{ request_obj.type }}</dd></div>
+    {% if request_obj.campus %}<div><dt>Campus</dt><dd>{{ request_obj.campus }}</dd></div>{% endif %}
+    {% if request_obj.type == "Coverage" %}
+      <div><dt>Start</dt><dd>{{ request_obj.event_start|date:"d M Y, H:i"|default:"—" }}</dd></div>
+      <div><dt>End</dt><dd>{{ request_obj.event_end|date:"d M Y, H:i"|default:"—" }}</dd></div>
+      <div>
+        <dt>Venue</dt>
+        <dd>
+          {% if can_edit_venue %}
+            <form method="post" action="{% url 'request-edit-venue' request_obj.pk %}" class="row">
+              {% csrf_token %}
+              {{ venue_form.venue }}
+              <button type="submit" class="btn btn--sm">Update</button>
+            </form>
+            <p class="note">// changes here notify everyone already assigned</p>
+          {% else %}
+            {{ request_obj.venue|default:"—" }}
+          {% endif %}
+        </dd>
+      </div>
+      <div><dt>Roles</dt><dd>{{ request_obj.roles_needed|join:", "|default:"—" }}</dd></div>
+    {% endif %}
+    <div><dt>Platforms</dt><dd>{{ request_obj.platforms|join:", "|default:"—" }}</dd></div>
+    <div><dt>Content links</dt><dd>{{ request_obj.content_links|urlize|default:"—" }}</dd></div>
+    <div><dt>Requester</dt><dd>{{ request_obj.requester|default:"—" }}</dd></div>
+    <div><dt>Notes</dt><dd>{{ request_obj.notes|default:"—" }}</dd></div>
+    <div><dt>Created</dt><dd>{{ request_obj.created_at|date:"d M Y, H:i" }}</dd></div>
+  </dl>
+
+  {% if can_mark_ready %}
+    <form method="post" action="{% url 'mark-ready' request_obj.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn--primary">Mark ready to post</button>
+    </form>
+  {% endif %}
+
+  <h2 class="h2">Assigned team</h2>
+  {% if request_obj.status == "New" or request_obj.status == "Pending for POC approval" %}
+    <p class="muted">The assigned team and their contact details appear here once the request is accepted.</p>
+  {% elif not request_obj.roster %}
+    <p class="muted">Team assigned — contact details will appear shortly.</p>
+  {% else %}
+    <div class="roster-cards">
+      {% for m in request_obj.roster %}
+        <div class="contact">
+          <div class="avatar">{{ m.name|slice:":2"|upper }}</div>
+          <div class="contact__main">
+            <div class="contact__name">{{ m.name }} · {{ m.role }}</div>
+            <div class="contact__meta mono">{{ m.email }}{% if m.phone %} · {{ m.phone }}{% endif %}</div>
+          </div>
+          {% if m.phone %}<a class="contact__call" href="tel:{{ m.phone }}">Call</a>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if request_obj.posts %}
+    <h2 class="h2">Scheduled posts</h2>
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Platform</th><th>Scheduled</th><th>Handler</th></tr></thead>
+        <tbody>
+          {% for p in request_obj.posts %}
+            <tr><td>{{ p.platform }}</td><td>{{ p.scheduledAt|default:"—" }}</td><td>{{ p.handlerEmail|default:"—" }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

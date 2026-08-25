@@ -1,140 +1,149 @@
 # Handover — Media Committee Portal
 
-_Last updated: 2026-06-24. Read this first when picking up the project in a new chat._
-
-## 🟢 ARCHITECTURE CHANGE (2026-06-24): migrated off Firebase → Express + MongoDB
-To run **fully free with no credit card** (Cloud Functions require the paid Blaze plan), the
-backend was rebuilt as a standalone **Node/Express + MongoDB** server in **`server/`**, meant
-for **Render (free) + MongoDB Atlas M0 (free)**, with **Passport `google-oauth20`** sign-in
-(session in Mongo) replacing Firebase Auth. Resend + googleapis are reused unchanged. The
-Firestore **triggers are now synchronous functions** in `server/src/services/workflow.ts`,
-called from the routes; the hourly job is `POST /api/cron/deadline-check` driven by a GitHub
-Actions cron (`.github/workflows/deadline.yml`). The frontend (`web/`, still on Vercel) keeps
-all views/CSS; only its data/auth layer was swapped (`web/js/api.js` + `config.js` replace
-`firebase.js`/`firebase-config.js`; `roles.js` deleted; `data.js` `watch*` now poll every 20s
-and refresh instantly after a mutation via a `mcc:mutated` event).
-- **Deploy + local-run guide:** [`server/README.md`](server/README.md).
-- **Verified:** `cd server; npx tsc --noEmit` (exit 0) and `npx tsx smoke.ts` (12/12 engine
-  checks against in-memory Mongo — refcode, pipeline, assign, confirm, complete, schedule
-  posts, <48h gate, points).
-- The old **Firebase stack below (`functions/`, `firebase.json`, `firestore.rules`, the
-  Firebase parts of this doc) is SUPERSEDED but kept** until the Render deploy is validated,
-  then it can be removed. Sections below describe that legacy stack.
+_Last updated: 2026-08-22. Read this first when picking up the project in a new
+chat. For **what the system does and why**, see [`docs/PRD.md`](docs/PRD.md).
+For **who owns what**, see [`docs/PIC.md`](docs/PIC.md)._
 
 ## What this is
-Workflow portal for the **Media Committee at IIM Sirmaur**. Committees/clubs/MDP/students
-raise **requests** (Coverage or Post); the system assigns the right people, enforces
-deadlines, balances workload, schedules posts, and tracks points/strikes.
+Workflow portal for the **Media & Communications Committee at IIM Sirmaur**.
+Committees/clubs/offices raise **requests** (Coverage or Post); the system
+assigns the right people, enforces deadlines, balances workload, schedules
+posts, and tracks points/strikes. Full detail: [`docs/PRD.md`](docs/PRD.md).
 
-**Stack:** vanilla HTML/CSS/ES-modules frontend (no framework, Firebase Web SDK from CDN
-pinned in `web/js/firebase.js`) on Vercel · Firebase Auth (Google, domain
-`@iimsirmaur.ac.in`) · Firestore (+ rules) · Cloud Functions v2 (TypeScript, region
-`asia-south1`). Email = Resend, Calendar = Google — both behind **env auto-fallback** to
-logging stubs when keys absent.
+## Stack (current — free, no card anywhere)
+- **Frontend:** vanilla HTML/CSS/ES-modules SPA (`web/`), hash-routed, no
+  build step. Hosted on **Vercel** (static).
+- **API:** Node/Express + TypeScript (`server/`). Hosted on **Render** (free
+  web service — sleeps after ~15 min idle, ~50s cold start).
+- **Database:** **MongoDB Atlas** (M0 free cluster).
+- **Auth:** Google OAuth (`passport-google-oauth20`) → server issues a
+  **signed JWT** the client stores and sends as `Authorization: Bearer`.
+  **Not cookie-based** — cookies broke cross-origin sign-in on Safari/iOS
+  (third-party cookie blocking), so this is deliberate; see
+  `server/src/auth/jwt.ts` and `web/js/api.js`.
+- **Email:** Resend (auto-fallback to console logging if `RESEND_API_KEY` unset).
+- **Calendar:** Google Calendar API, service account + domain-wide delegation
+  (auto-fallback to logging if `CALENDAR_SERVICE_ACCOUNT_JSON` unset).
+- **Scheduled job:** hourly deadline sweep via **GitHub Actions cron**
+  (`.github/workflows/deadline.yml`) hitting `POST /api/cron/deadline-check`
+  — Render's free tier has no cron of its own.
 
-## ⚠️ Environment quirk (important)
-- The **Bash tool's `node` is v15** (too old — can't run firebase-admin/tsc/emulator).
-  **PowerShell's `node` is v24** — use the **PowerShell tool** for `node`/`npm`/`tsc`/seed/emulator.
-- Typecheck functions: PowerShell → `cd "F:\MCC Portal\functions"; npx tsc --noEmit`
-- Syntax-check web ES modules in Bash by copying to a temp `.mjs` and `node --check` (parse-only works on v15).
-- Repo is **not a git repo**. Platform: Windows 11, primary dir `F:\MCC Portal`.
+This replaced a Firebase (Cloud Functions + Firestore + Firebase Auth) build
+in June 2026 — Cloud Functions require a paid Blaze plan, which the committee
+wanted to avoid. The engine *logic* ported over essentially unchanged; only
+the data layer, auth, and trigger→route plumbing changed. The old Firebase
+code (`functions/`, `firestore.rules`, `firebase.json`) is **no longer used**
+and can be deleted once you're confident you won't need to reference it.
 
-## Status: feature-complete in the emulator. Only production deploy remains.
-All phases 1–13 built + emulator-tested, plus several rounds of user-requested additions.
+## Environment quirks (Windows)
+- **Use the PowerShell tool for `node`/`npm`/`tsc`** — the Bash tool's Node is
+  too old for this project's tooling. PowerShell's Node is current.
+- Parse-check web ES modules from Bash by copying to a temp `.mjs` and running
+  `node --check` (syntax-only, works on an older Node).
+- Repo **is** a git repo now, remote `WhiteWalker07/MCC_portal`. Working
+  branch is `develop`; PRs merge into `main`; Render + Vercel both deploy from
+  `main`.
 
-## Key commands (run in PowerShell)
+## Key commands
+```powershell
+# Server (from server/)
+npm install
+npm run dev              # local API on :8080 (tsx watch)
+npm run typecheck        # tsc --noEmit — expect exit 0
+npx tsx smoke.ts          # 12-check engine test against an in-memory Mongo (no setup needed)
+npm run seed              # sample/demo config+data (local dev only)
+npm run load-data          # the REAL committees/team/config — safe to re-run, idempotent
+npm run set-roles          # (re)apply admin/POC emails only
+npm run db-check           # diagnose "can't reach MongoDB" (Atlas IP allowlist / network block)
+
+# Frontend (from repo root)
+npx serve web -l 3000      # local static server; web/js/config.js auto-targets localhost:8080
 ```
-npm run build:functions     # compile TS (do after any functions/ change)
-npm run seed:force          # (re)seed config + sample data into the emulator
-npm run emulators           # start Firebase emulators
-npx serve web               # serve the frontend (separate terminal)
-cd functions; npx tsc --noEmit     # typecheck
-npm --prefix functions run shell   # invoke scheduled/callable fns manually (e.g. scheduledDeadlineCheck())
-```
-Seed accounts: `admin@iimsirmaur.ac.in` (admin), `poc@iimsirmaur.ac.in` (secretary),
-committee logins like `marketing@iimsirmaur.ac.in`, plus a sample team. Any
-`@iimsirmaur.ac.in` account can sign in (add via Auth emulator).
+Full local-dev + deploy walkthrough: [`server/README.md`](server/README.md).
+
+## Roles right now
+See [`docs/PIC.md`](docs/PIC.md) for the full accountability map. Short version:
+**Admin** = `mbatm25010@iimsirmaur.ac.in`, **Secretary/POC** =
+`mba25114@iimsirmaur.ac.in`. Both are **data** (`config/settings` in Mongo),
+not code — change them via the Admin view or `server/scripts/set-roles.mjs`.
+
+## Data status
+The real committee roster (41) and media team (23) are loaded via
+`server/src/admin/realData.ts`, run with `npm run load-data` (locally, if your
+network can reach Atlas) or `POST /api/admin/load-data` on Render (guarded by
+`CRON_SECRET` — works from anywhere since it's a normal HTTPS call, useful
+when a campus network blocks MongoDB's port directly). **If platforms are
+missing from the Post form or the admin/POC accounts don't have their
+privileges, this load hasn't completed against production yet** — run it, then
+`GET /api/admin/status` (same secret) to verify. Details:
+[`server/README.md`](server/README.md).
+
+## Recently added (this round, 2026-08)
+1. **Event-start completion guard:** a task tied to an event can't be marked
+   done before that event starts (`server/src/routes/tasks.ts` +
+   `web/js/views/myTasks.js`).
+2. **Availability / "out of work" tracking:** secretary/admin can toggle a
+   member out of work (excluded from auto-assignment) and back; cumulative
+   on-work/out days are tracked live (`server/src/routes/team.ts` §
+   `/api/team/availability`, Admin view).
+3. **Real data loaded:** 41 committees + 23 team members
+   (`server/src/admin/realData.ts`), replacing the demo seed. Also seeds the
+   engine config (`taskTypes`/`slots`/`platforms`/`points`/`settings`) if
+   absent, without clobbering admin-tuned values on re-run.
+4. **Committee management UI:** add/update a committee from the Admin view
+   (`GET/POST /api/committees`) — no script needed for day-to-day use.
+5. **Admin status endpoint:** `GET /api/admin/status` (secret-guarded) — a
+   quick read of what's actually in the database, for verifying a data load
+   without DB credentials.
+6. **Token-based auth (Safari/iOS fix):** replaced the session cookie with a
+   signed JWT the client stores and sends as a Bearer header. Cookie sessions
+   couldn't survive the cross-site Vercel↔Render hop on Safari/iOS (blocks
+   third-party cookies); a same-origin Vercel-proxy attempt was tried first
+   and reverted as fragile in favor of this. See `server/src/auth/jwt.ts`,
+   `web/js/api.js`, `web/js/auth.js`.
+7. **Real logo favicon** — `web/favicon.svg` is the actual MCC logo, not a
+   placeholder.
+
+## ⚠️ Open items (see `docs/PRD.md` §10 for full detail)
+1. **Points timing-reference is unconfirmed** — currently measured from
+   event-end/request-creation to completion; may need to be relative to each
+   task's own deadline instead. One-line change in
+   `server/src/services/workflow.ts` (`completeTask`) once confirmed.
+2. **Social platform handlers are placeholders** (`mediacell@…` for all of
+   Instagram/LinkedIn/X) — need real owners.
+3. **No vertical heads formally appointed** in the database yet (Admin view →
+   Vertical heads) — until then, no one has the manual-assign privilege that
+   comes with it.
+4. **All vendor accounts (GitHub/Render/Atlas/Vercel/Google Cloud) sit with
+   one person** — add a second owner; see `docs/PIC.md` §3.
 
 ## Architecture cheat-sheet
-- **Clients never write** `requests.status`, `tasks.points/status`, refCode, campus,
-  coordinatorEmail, roster, or `team/*`. The engine (Admin SDK) owns those. Clients act
-  only through gated callables or narrow rule-checked field writes.
-- **Lifecycle:** New → (Pending for POC approval, if <48h Coverage / approval-always) →
-  Request Accepted → Event Covered → Ready To post → Posted. (Rejected is terminal.)
-- **Triggers** (`functions/src/triggers/`): `onRequestCreated` (refCode, pipeline, assign,
-  gate, confirm), `onRequestDecided` (approve/reject), `onTaskCompleted` (advance +
-  points-timing modifier), `onTaskReassign`, `onReadyToPost` (slot scheduler), `scheduledDeadlineCheck` (hourly LATE+strikes).
-- **Callables** (`functions/src/callable/`): `assignments.ts` (getEligibleMembers,
-  listAssignableTasks, requestReassign, assignTask, markReadyToPost), `team.ts`
-  (importTeamCsv, listTeamMembers, setDomainHead, setPointScheme), `dashboard.ts`
-  (getDashboardStats). All exported in `functions/src/index.ts`.
-- **Config docs** (`config/*`, client-readable, engine-written): `taskTypes`, `slots`,
-  `platforms`, `settings`, `points`. Seeded by `scripts/seed.mjs`.
-- **Frontend views** (`web/js/views/`): newRequest, myRequests, myTasks, assignments,
-  approvals, dashboard, admin. Routing/nav/shell in `web/js/shell.js` (hash router); auth
-  in `app.js`/`auth.js`; roles in `roles.js`; data layer in `data.js`.
-
-## Recently added (beyond the original phase plan)
-1. **UI redesign** to the user's wireframes (`Media Portal Wireframes.dc.html`, Approach A):
-   warm `#e8e7e3` canvas, Hanken Grotesk + Space Mono, indigo `#5b61d6` primary; lifecycle
-   stepper, flat task cards, contact-card roster, status chips. All in `web/assets/css/styles.css`.
-2. **Device-adaptive shell:** desktop = top pill nav; **phones = fixed bottom tab bar** with
-   icons (in `shell.js` + a `@media (max-width:767px)` block).
-3. **Critical bug fixed:** `.splash`/`.signin-view` set `display:flex`, which overrode the
-   `hidden` attribute, so loading/sign-in never hid and all views stacked into one
-   scrollable page ("login doesn't disappear"). Fixed with `[hidden]{display:none!important}`
-   at the top of `styles.css`. **This was the root cause of the "single pager" complaint.**
-4. **Dashboard** (`dashboard.ts` callable + `dashboard.js`): admin/secretary fairness+usage
-   stats (active members, points, on-time rate, turnaround, leaderboard bars, by-vertical,
-   requests-by-status) with **filters**: Time / Campus / Year / Vertical.
-5. **Vertical heads:** admins/POCs appoint domain heads from the Admin view
-   (`setDomainHead` / `listTeamMembers` callables). One head per vertical (new demotes old).
-6. **Access change:** any `@iimsirmaur.ac.in` user can create a **Post** request; **Coverage
-   reserved to committees** (rule in `firestore.rules` + form in `newRequest.js`).
-   Non-committee requesters get a fallback refCode `MEDIA_n` (`settings.defaultAcronym` +
-   `settings.generalSeq`, in `engine/refcode.ts`).
-7. **Committee logos:** `web/assets/logos/` folder + `committee.logo` field shown in top bar.
-8. **Configurable point scheme** (`config/points`, `engine/points.ts`, admin editor in
-   `admin.js` via `setPointScheme`): base points (Coordinator 20, domain task 10, Vetter 10)
-   + completion-timing modifier — `≤24h → +30%`, `>48h → −30%`, each further 6h → −10%.
-   Applied in `onTaskCompleted` once per task; logs `points-adjust`.
-
-## ⚠️ OPEN QUESTION the user has not yet answered
-The points **timing reference** is currently assumed to be **turnaround from the event end
-(Coverage) / request creation (Post)** to completion (see `onTaskCompleted.ts` line ~52). The
-user's spec ("post under 24h / delayed >48h") didn't say *measured from when*. If they meant
-**relative to each task's deadline**, it's a one-line change of `refTs` in `onTaskCompleted.ts`.
-**Confirm this with the user.**
-
-## Email & Calendar (both wired, auto-fallback)
-- **Email** (`services/email.ts`): real Resend when `RESEND_API_KEY` set, else logs. Used by
-  `onRequestCreated` (secretary approval email) + `onRequestDecided` (rejection email).
-- **Calendar** (`services/calendar.ts`): real Google Calendar when
-  `CALENDAR_SERVICE_ACCOUNT_JSON` set (service account + domain-wide delegation), else
-  treats everyone free / logs invites. Used by `chooseMember` (free/busy for atEvent tasks)
-  + holds/reminders. README has the Workspace delegation setup steps.
-- In the emulator both run as stubs (logged). **To test real:** set the env var(s) in
-  `functions/.env` (or Secret Manager for prod) and restart functions.
-
-## What's NOT done / next steps
-- **Production deploy** (the only remaining roadmap item):
-  - Frontend → Vercel: put real config in `web/js/firebase-config.js`, add the Auth
-    authorized domain, `npm run deploy:web`.
-  - Backend → Firebase Blaze: `firebase use <project>`, `npm run deploy:rules`,
-    `firebase functions:secrets:set RESEND_API_KEY`, `npm run deploy:functions`,
-    `npm run seed -- --prod` with real committees/team/settings.
-- **After any of the recent additions, re-run `npm run seed:force`** so `config/points`,
-  `settings.defaultAcronym`/`generalSeq`, and `committee.logo` exist in the emulator.
-- Confirm the points timing-reference question above.
-- Optional/未requested: real two-pane desktop layouts, literal multi-HTML-file routing
-  (deliberately not done — would re-run auth per page; current SPA gives clean per-view
-  pages with working back button).
+- **Clients never own** `requests.status`, `tasks.points/status`, `refCode`,
+  `campus`, `coordinatorEmail`, or points/strikes — the engine (server-side)
+  owns those; enforced in Express routes + `engine/serverRoles.ts`'s
+  `canAssign`, not in the client.
+- **Lifecycle:** New → (Pending for POC approval, if gated) → Request
+  Accepted → Event Covered → Ready To post → Posted. (Rejected is terminal.)
+- **Former Firestore triggers**, now plain functions in
+  `server/src/services/workflow.ts` called directly from routes:
+  `processNewRequest`, `confirmRequest` (approve), `rejectRequest`,
+  `completeTask`, `schedulePosts`, `runDeadlineCheck`.
+- **Routes** (`server/src/routes/`): `auth`, `config`, `requests`, `tasks`,
+  `assignments`, `team`, `committees`, `dashboard`, `cron`, `admin`.
+- **Frontend views** (`web/js/views/`): newRequest, myRequests, myTasks,
+  assignments, approvals, dashboard, admin. Shell/routing in `web/js/shell.js`
+  (hash router); auth in `app.js`/`auth.js`; data layer in `data.js` (polls
+  every ~20s, refreshes instantly on any mutation via a `mcc:mutated` event).
 
 ## Verification habit
-After functions changes: PowerShell `cd functions; npx tsc --noEmit` (expect exit 0).
-After web changes: Bash copy-to-`.mjs` + `node --check`. Both were green at handover.
+- After server changes: PowerShell → `cd server; npm run typecheck` (expect
+  exit 0) and `npx tsx smoke.ts` (expect 12/12).
+- After web changes: Bash → copy the changed file to a temp `.mjs`,
+  `node --check` it.
+- Both were green as of this handover.
 
 ## Pointers
-- Full feature/phase history + deploy steps: `README.md`.
+- **What the system does:** [`docs/PRD.md`](docs/PRD.md)
+- **Who owns what:** [`docs/PIC.md`](docs/PIC.md)
+- **Deploy + local-run steps:** [`server/README.md`](server/README.md)
 - Auto-memory index: `C:\Users\Agrim Kaundal\.claude\projects\F--MCC-Portal\memory\MEMORY.md`
-  (project overview + the Node/PowerShell quirk).
