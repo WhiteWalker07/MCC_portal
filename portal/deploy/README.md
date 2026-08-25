@@ -6,7 +6,27 @@ nightly backup as `systemd` timers, configures the firewall, and disables
 sleep. This file covers everything that's left afterward: the parts that
 depend on information only IT has, and how to operate the thing day to day.
 
-## 1. Get real HTTPS (once you know your DNS provider)
+## 1. Make CI actually gate the auto-merge (one-time GitHub setting)
+
+Every push to `develop` opens (or updates) a PR into `main` and turns on
+GitHub's native auto-merge for it (`.github/workflows/auto-pr.yml`) — it only
+merges once the test-suite workflow (`.github/workflows/ci.yml`) goes green,
+same as a human reviewer refusing to approve a broken change. That gate is
+**not enforced** until `main` has a branch-protection rule requiring it —
+without one, GitHub has nothing to make auto-merge wait on.
+
+1. **[github.com/WhiteWalker07/MCC_portal/settings/branches](https://github.com/WhiteWalker07/MCC_portal/settings/branches)**
+2. Add a branch protection rule for `main`
+3. Enable **"Require status checks to pass before merging"**, then search for
+   and select **`CI / test`** (the job in `ci.yml`)
+4. Save
+
+Until this is set, pushes still open/update the PR and *attempt* to enable
+auto-merge, but that attempt fails harmlessly (logged as a workflow warning,
+not a failure) — the PR just sits open for manual merging instead, same as
+before this automation existed.
+
+## 2. Get real HTTPS (once you know your DNS provider)
 
 `setup.sh` leaves Caddy serving plain HTTP — that's deliberate, not a bug. Real
 HTTPS via Let's Encrypt needs a **DNS-01** challenge (proves you own the domain
@@ -58,7 +78,7 @@ sudo systemctl restart caddy
 
 Watch it get a real certificate: `sudo journalctl -u caddy -f`.
 
-## 2. Register the real redirect URI with Google
+## 3. Register the real redirect URI with Google
 
 Once HTTPS is live, add this as an **Authorized redirect URI** on the OAuth
 client (Google Cloud Console → APIs & Services → Credentials):
@@ -74,7 +94,7 @@ cd MCC_portal/portal
 sudo systemctl restart mcc-portal
 ```
 
-## 3. Day-to-day operations
+## 4. Day-to-day operations
 
 ```bash
 # Status / logs
@@ -97,7 +117,7 @@ sudo systemctl restart mcc-portal
 .venv/bin/python manage.py seed_real_data
 ```
 
-## 4. Backups
+## 5. Backups
 
 `mcc-backup.timer` runs nightly at 02:30, writing to `data/backups/` on this
 same machine — which protects against a bad deploy or accidental data change,
@@ -113,7 +133,7 @@ sqlite3 /tmp/restore-test.sqlite3 "select count(*) from core_committee; select c
 # should print 41 and 23 (or however many you've actually got)
 ```
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
 - **Service won't start**: `journalctl -u mcc-portal -e` — almost always a
   missing/wrong `.env` value or a pending migration.
