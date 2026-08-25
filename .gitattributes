@@ -1,0 +1,5 @@
+# Shell scripts must stay LF — a CRLF shebang line breaks on Linux
+# ("bad interpreter" / stray $'\r' errors). Windows checkouts of this repo
+# otherwise default to CRLF (core.autocrlf=true), which is fine for
+# everything else but not for these.
+*.sh text eol=lf
