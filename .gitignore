@@ -1,30 +1,14 @@
-# Dependencies
+# Generic cruft. Project-specific ignores (the Django app's venv, database,
+# generated secret key, etc.) live in portal/.gitignore.
 node_modules/
-
-# Build output
-functions/lib/
 
 # Secrets & local env (NEVER commit real values)
 .env
 .env.local
 .env.*.local
-functions/.env
-functions/.env.local
-functions/.secret.local
 serviceAccount*.json
 *-service-account*.json
 calendar-service-account*.json
-
-# Firebase
-.firebase/
-firebase-debug.log
-firebase-debug.*.log
-firestore-debug.log
-ui-debug.log
-.emulator-data/
-
-# Vercel
-.vercel/
 
 # Logs & OS cruft
 *.log

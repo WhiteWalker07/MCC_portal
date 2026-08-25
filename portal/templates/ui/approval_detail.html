@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ request_obj.event_name }} — Approval{% endblock %}
+{% block content %}
+<section class="card stack">
+  <a class="back" href="{% url 'approval-list' %}">← Approvals</a>
+
+  <div class="view-head">
+    <h1>{{ request_obj.event_name|default:"(untitled)" }}</h1>
+    <span class="status" data-status="{{ request_obj.status }}">{{ request_obj.status }}</span>
+  </div>
+
+  <dl class="dl">
+    <div><dt>Request ID</dt><dd>{{ request_obj.ref_code }}</dd></div>
+    <div><dt>Type</dt><dd>{{ request_obj.type }}</dd></div>
+    <div><dt>Requested by</dt><dd>{{ request_obj.contact_email }}</dd></div>
+    {% if request_obj.type == "Coverage" %}
+      <div><dt>Start</dt><dd>{{ request_obj.event_start|date:"d M Y, H:i" }}</dd></div>
+      <div><dt>End</dt><dd>{{ request_obj.event_end|date:"d M Y, H:i" }}</dd></div>
+      <div><dt>Venue</dt><dd>{{ request_obj.venue|default:"—" }}</dd></div>
+    {% endif %}
+  </dl>
+
+  <h2 class="h2">Proposed team</h2>
+  {% if tasks %}
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Task</th><th>Member</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for t in tasks %}
+            <tr>
+              <td>{{ t.task }}</td>
+              <td>{% if t.email %}{{ t.member }} &lt;{{ t.email }}&gt;{% else %}<span class="error">UNFILLED — {{ t.reason }}</span>{% endif %}</td>
+              <td><span class="status" data-status="{{ t.status }}">{{ t.status }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No tasks were generated for this request.</p>
+  {% endif %}
+
+  <div class="row">
+    <form method="post" action="{% url 'approval-decide' request_obj.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="decision" value="approve" />
+      <button type="submit" class="btn btn--primary">Approve</button>
+    </form>
+    <form method="post" action="{% url 'approval-decide' request_obj.pk %}" class="stack">
+      {% csrf_token %}
+      <input type="hidden" name="decision" value="reject" />
+      {{ reject_form.reason }}
+      <button type="submit" class="btn btn--danger btn--sm">Reject</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

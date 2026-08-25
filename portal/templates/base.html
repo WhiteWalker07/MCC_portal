@@ -1,0 +1,53 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <link rel="icon" type="image/svg+xml" href="{% static 'favicon.svg' %}" />
+  <link rel="apple-touch-icon" href="{% static 'favicon.svg' %}" />
+  <title>{% block title %}Media Committee Portal{% endblock %}</title>
+  <meta name="description" content="Workflow portal for the Media Committee at IIM Sirmaur." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{% static 'styles.css' %}" />
+</head>
+<body>
+{% if user.is_authenticated %}
+  <div class="appbar">
+    <header class="topbar">
+      <div class="topbar__left">
+        <span class="topbar__brand">Media Portal</span>
+        <span class="topbar__tag">{{ identity_tag }}</span>
+      </div>
+      <div class="topbar__right">
+        <span class="topbar__user" title="{{ user.email }}">{{ user.get_full_name|default:user.email }}</span>
+        <form action="{% url 'account_logout' %}" method="post" style="display:inline">
+          {% csrf_token %}
+          <button class="btn btn--sm" type="submit">Sign out</button>
+        </form>
+      </div>
+    </header>
+    <nav class="nav">
+      {% for item in nav_items %}
+        <a class="nav__link{% if request.resolver_match.url_name == item.url_name %} nav__link--active{% endif %}" href="{% url item.url_name %}">
+          <span class="nav__full">{{ item.label }}</span>
+          <span class="nav__short">{{ item.short }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  </div>
+{% endif %}
+
+<main class="container">
+  {% if messages %}
+    {% for message in messages %}
+      <p class="{% if message.tags == 'error' %}error{% else %}note{% endif %}">{{ message }}</p>
+    {% endfor %}
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+
+</body>
+</html>

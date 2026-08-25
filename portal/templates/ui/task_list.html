@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}My Tasks — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <h1>My Tasks</h1>
+  {% if tasks %}
+    <ul class="tcards">
+      {% for t in tasks %}
+        <li class="tcard{% if t.status == 'LATE' %} tcard--late{% endif %}">
+          <div class="tcard__main">
+            <div class="tcard__title">{{ t.task }}</div>
+            <div class="tcard__sub">{{ t.ref_code }} · {{ t.event_name }}</div>
+            <div class="tcard__chips">
+              {% if t.points %}<span class="chip-pts">+{{ t.points }} pts</span>{% endif %}
+              <span class="status" data-status="{{ t.status }}">{{ t.status }}</span>
+              {% if t.deadline %}
+                <span class="chip-due{% if t.status == 'LATE' %} is-late{% endif %}">
+                  {% if t.status == 'LATE' %}overdue {% else %}due {% endif %}{{ t.deadline|timeuntil }}
+                </span>
+              {% endif %}
+            </div>
+          </div>
+          {% if t.status == "CONFIRMED" or t.status == "LATE" %}
+            {% if t.awaits_event %}
+              <button class="btn btn--sm" type="button" disabled
+                title="Available once the event starts on {{ t.event_start|date:'d M Y, H:i' }}">
+                Starts {{ t.event_start|timeuntil }}
+              </button>
+            {% else %}
+              <form method="post" action="{% url 'task-complete' t.pk %}">
+                {% csrf_token %}
+                <button class="btn btn--sm btn--primary" type="submit">Mark done</button>
+              </form>
+            {% endif %}
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No tasks assigned to you yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

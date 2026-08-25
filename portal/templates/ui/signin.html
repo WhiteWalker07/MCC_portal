@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% load socialaccount %}
+{% block title %}Sign in — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="signin-view">
+  <div class="signin-card card stack center">
+    <div class="signin-mark" aria-hidden="true"></div>
+    <div>
+      <h1 class="signin-title">Media Portal</h1>
+      <p class="muted signin-sub">Coverage &amp; posting requests · IIM Sirmaur</p>
+    </div>
+    <a class="btn btn--primary btn--block" href="{% provider_login_url 'google' %}">
+      <span class="g-dot" aria-hidden="true"></span> Continue with Google
+    </a>
+    <p class="note">// only @iimsirmaur.ac.in accounts are accepted</p>
+  </div>
+</section>
+{% endblock %}

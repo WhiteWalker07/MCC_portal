@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% load portal_extras %}
+{% block title %}Admin — Media Committee Portal{% endblock %}
+{% block content %}
+
+<section class="card stack">
+  <h1>Committees</h1>
+  <p class="muted">Add a club / committee / office. It signs in with the login email and can
+    raise Coverage requests; the acronym is the request-ID prefix (e.g. <code>MKTG_1</code>).
+    Re-adding the same email updates it — the request counter is preserved.
+    Full record editing (rename, change type) also lives in <a href="/admin/core/committee/">Django admin</a>.</p>
+
+  <form method="post" action="{% url 'committee-manage' %}" class="grid2">
+    {% csrf_token %}
+    <label class="field"><span class="field__label">Name</span>{{ committee_form.name }}</label>
+    <label class="field"><span class="field__label">Login email</span>{{ committee_form.email }}</label>
+    <label class="field"><span class="field__label">Acronym</span>{{ committee_form.acronym }}</label>
+    <label class="field"><span class="field__label">Type</span>{{ committee_form.type }}</label>
+    <label class="field"><span class="field__label">Campus</span>{{ committee_form.campus }}</label>
+    <div class="row"><button type="submit" class="btn btn--primary">Add / update committee</button></div>
+  </form>
+
+  {% if committees %}
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Name</th><th>Acronym</th><th>Type</th><th>Campus</th><th>Login email</th></tr></thead>
+        <tbody>
+          {% for c in committees %}
+            <tr><td>{{ c.name }}</td><td>{{ c.acronym }}</td><td>{{ c.type }}</td><td>{{ c.campus }}</td><td>{{ c.email }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No committees yet.</p>
+  {% endif %}
+</section>
+
+<section class="card stack">
+  <h1>Vertical heads</h1>
+  <p class="muted">Make a team member the head of a vertical. Heads can manually assign
+    tasks within their vertical. One head per vertical — assigning a new one replaces the previous.</p>
+  <div class="heads">
+    {% for vertical in verticals %}
+      {% with head=heads|get_item:vertical %}
+        <div class="head-row">
+          <div class="head-row__v">{{ vertical }}</div>
+          <div class="head-row__cur">{% if head %}{{ head.name }}{% else %}<span class="muted">No head</span>{% endif %}</div>
+          <form method="post" action="{% url 'vertical-head' %}" class="row">
+            {% csrf_token %}
+            <select class="input" name="member_email">
+              <option value="">— choose member —</option>
+              {% for m in members %}<option value="{{ m.email }}"{% if head.email == m.email %} selected{% endif %}>{{ m.name }}{% if m.vertical %} · {{ m.vertical }}{% endif %}</option>{% endfor %}
+            </select>
+            <input type="hidden" name="vertical" value="{{ vertical }}" />
+            <button type="submit" class="btn btn--sm btn--primary">Set</button>
+          </form>
+          {% if head %}
+            <form method="post" action="{% url 'vertical-head' %}">
+              {% csrf_token %}
+              <input type="hidden" name="member_email" value="{{ head.email }}" />
+              <input type="hidden" name="vertical" value="" />
+              <button type="submit" class="btn btn--sm">Remove</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endwith %}
+    {% endfor %}
+  </div>
+</section>
+
+<section class="card stack">
+  <h1>Availability</h1>
+  <p class="muted">Mark a member <strong>Out of work</strong> (on break) so the engine stops
+    assigning them tasks, or bring them back <strong>On work</strong>. Days on / out of work
+    are tallied from each change.</p>
+  {% if members %}
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Member</th><th>Status</th><th>On work</th><th>Out</th><th></th></tr></thead>
+        <tbody>
+          {% for m in members %}
+            <tr>
+              <td>{{ m.name }}{% if m.vertical %}<br><span class="muted">{{ m.vertical }}</span>{% endif %}</td>
+              <td><span class="status" data-status="{% if m.availability == 'out' %}LATE{% else %}CONFIRMED{% endif %}">{% if m.availability == 'out' %}Out of work{% else %}On work{% endif %}</span></td>
+              <td>{{ m.on_work_days }} d</td>
+              <td>{{ m.out_days }} d</td>
+              <td>
+                <form method="post" action="{% url 'set-availability' %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="member_email" value="{{ m.email }}" />
+                  <input type="hidden" name="availability" value="{% if m.availability == 'out' %}available{% else %}out{% endif %}" />
+                  <button type="submit" class="btn btn--sm{% if m.availability == 'out' %} btn--primary{% endif %}">
+                    {% if m.availability == 'out' %}Mark on work{% else %}Mark out of work{% endif %}
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No team members yet.</p>
+  {% endif %}
+</section>
+
+<section class="card stack">
+  <h1>Strikes</h1>
+  <p class="muted">Waive a strike issued in error. Secretary/admin only — unlike issuing one,
+    which a vertical head may also do from the Assignments page.</p>
+  {% if remove_strike_form %}
+    <form method="post" action="{% url 'remove-strike' %}" class="row">
+      {% csrf_token %}
+      {{ remove_strike_form.member_email }}
+      {{ remove_strike_form.reason }}
+      <button type="submit" class="btn btn--sm">Remove strike</button>
+    </form>
+  {% else %}
+    <p class="muted">Nobody currently has a strike.</p>
+  {% endif %}
+</section>
+
+<section class="card stack">
+  <h1>Team roster</h1>
+  <p class="muted">Remove a member from the team. This deactivates them — future auto-assignment
+    skips them and the Dashboard shows them as inactive, but their points, strikes and past tasks
+    are kept, and it's reversible (via Django admin, or a fresh CSV import with <code>active=true</code>).</p>
+  {% if remove_from_team_form %}
+    <form method="post" action="{% url 'remove-from-team' %}" class="row">
+      {% csrf_token %}
+      {{ remove_from_team_form.member_email }}
+      {{ remove_from_team_form.reason }}
+      <button type="submit" class="btn btn--danger btn--sm">Remove from team</button>
+    </form>
+  {% else %}
+    <p class="muted">No active members to remove.</p>
+  {% endif %}
+</section>
+
+<section class="card stack">
+  <h1>Team admin — CSV import</h1>
+  <p class="muted">Columns: <code>name, email, vertical, year, domainHeadOf, skills, campus, phone, active</code>.
+    Use <code>;</code> between multiple skills. Re-importing updates existing members (points/strikes preserved).</p>
+  <form method="post" action="{% url 'team-import' %}" enctype="multipart/form-data" class="stack">
+    {% csrf_token %}
+    <label class="field"><span class="field__label">Paste CSV</span>{{ team_import_form.csv_text }}</label>
+    <label class="field"><span class="field__label">…or upload a file</span>{{ team_import_form.csv_file }}</label>
+    <div class="row"><button type="submit" class="btn btn--primary">Import</button></div>
+  </form>
+</section>
+
+<section class="card stack">
+  <h1>Point scheme</h1>
+  <p class="muted">Base points per role + completion-timing modifiers (turnaround from event end
+    for coverage, from request creation for posts).{% if not is_admin %} Read-only — admins can edit.{% endif %}</p>
+  {% if point_form %}
+    <form method="post" action="{% url 'point-scheme' %}" class="scheme-grid">
+      {% csrf_token %}
+      {% for field in point_form %}
+        <label class="field"><span class="field__label">{{ field.label }}</span>{{ field }}</label>
+      {% endfor %}
+      <div class="row"><button type="submit" class="btn btn--primary">Save scheme</button></div>
+    </form>
+  {% else %}
+    <p class="muted">Only admins can view or edit the point scheme here.</p>
+  {% endif %}
+</section>
+{% endblock %}

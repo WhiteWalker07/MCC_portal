@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}My Requests — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <div class="view-head">
+    <h1>My Requests</h1>
+    <a class="btn btn--sm btn--primary" href="{% url 'request-new' %}">New</a>
+  </div>
+  {% if requests %}
+    <ul class="list">
+      {% for r in requests %}
+        <li class="list__item">
+          <a class="list__link" href="{% url 'request-detail' r.pk %}">
+            <span class="list__main">
+              <span class="list__title">{{ r.event_name|default:"(untitled)" }}</span>
+              <span class="list__sub">
+                {{ r.ref_code|default:"ID pending" }} · {{ r.type }}
+                {% if r.type == "Coverage" and r.event_start %} · {{ r.event_start|date:"d M Y, H:i" }}{% endif %}
+              </span>
+            </span>
+            <span class="status" data-status="{{ r.status }}">{{ r.status }}</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No requests yet. <a href="{% url 'request-new' %}">Create one</a>.</p>
+  {% endif %}
+</section>
+{% endblock %}

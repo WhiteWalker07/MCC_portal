@@ -5,7 +5,14 @@
       "Bash(firebase --version)",
       "Bash(node scripts/seed.mjs)",
       "Bash(npm install *)",
-      "PowerShell(cd \"F:\\\\MCC Portal\\\\functions\"; node --version; npx tsc --noEmit; Write-Output \"EXIT=$LASTEXITCODE\")"
+      "PowerShell(cd \"F:\\\\MCC Portal\\\\functions\"; node --version; npx tsc --noEmit; Write-Output \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(Test-NetConnection -ComputerName \"cluster0.ri1mfz9.mongodb.net\" -Port 27017 -InformationLevel Quiet)",
+      "PowerShell(Resolve-DnsName \"cluster0.ri1mfz9.mongodb.net\" -ErrorAction SilentlyContinue)",
+      "PowerShell(nslookup cluster0.ri1mfz9.mongodb.net 8.8.8.8)",
+      "PowerShell(Get-NetAdapter | Where-Object { $_.Status -eq \"Up\" } | Select-Object Name, InterfaceDescription)",
+      "PowerShell(Set-DnsClientServerAddress -InterfaceAlias \"Wi-Fi\" -ServerAddresses \\(\"8.8.8.8\",\"8.8.4.4\"\\))",
+      "PowerShell(Set-Location \"F:\\\\MCC Portal\\\\portal\"; New-Item -ItemType Directory -Force -Path \"core\\\\management\\\\commands\" | Out-Null; foreach \\($p in @\\(\"core\\\\management\\\\__init__.py\",\"core\\\\management\\\\commands\\\\__init__.py\"\\)\\) { if \\(-not \\(Test-Path $p\\)\\) { New-Item -ItemType File -Path $p | Out-Null } }; Get-ChildItem -Recurse core\\\\management -Name)",
+      "PowerShell(Set-Location \"F:\\\\MCC Portal\\\\portal\"; foreach \\($a in @\\(\"engine\",\"core\",\"ui\",\"accounts\"\\)\\) { $f = \"$a\\\\tests.py\"; if \\(Test-Path $f\\) { Remove-Item $f; \"removed $f\" } }; New-Item -ItemType Directory -Force -Path \"engine\\\\tests\" | Out-Null; New-Item -ItemType File -Force -Path \"engine\\\\tests\\\\__init__.py\" | Out-Null; \"ok\")"
     ]
   }
 }
