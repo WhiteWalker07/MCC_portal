@@ -1,0 +1,65 @@
+name: Auto-open + auto-merge develop -> main PR
+
+# Opens a pull request from develop into main on every push to develop (or
+# just leaves an already-open one alone — new commits land on it
+# automatically since a PR tracks the branch, not a snapshot), and turns on
+# GitHub's native auto-merge for it.
+#
+# Auto-merge here is NOT "merge immediately, no questions asked" — it only
+# fires once every check GitHub knows about for that PR's commit has gone
+# green, which today means the CI workflow's test suite (.github/workflows/
+# ci.yml). A failing test blocks the merge exactly like a human reviewer
+# saying "no" would. For that gate to actually be enforced (not just
+# advisory), main needs a branch-protection rule requiring the "CI / test"
+# check — a one-time repo-admin setting this workflow can't flip on its own,
+# see portal/deploy/README.md.
+#
+# GITHUB_TOKEN is minted by Actions itself, scoped to this repo, for the
+# duration of the run only — no personal access token to create or hand over.
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Open (or find) the PR, then enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # `// empty` matters: with no open PR, `.[0].number` alone would print
+          # the literal string "null", which `[ -n ... ]` treats as non-empty
+          # and the script would wrongly conclude a PR already exists.
+          existing="$(gh pr list --base main --head develop --state open --json number --jq '.[0].number // empty')"
+
+          if [ -n "$existing" ]; then
+            echo "PR #$existing is already open for develop -> main; new commits land on it automatically."
+            pr_number="$existing"
+          else
+            gh pr create \
+              --base main \
+              --head develop \
+              --title "Sync develop into main" \
+              --body "Auto-opened by .github/workflows/auto-pr.yml on every push to \`develop\`. Auto-merges once CI is green — see that workflow's comments for what actually gates it."
+            pr_number="$(gh pr list --base main --head develop --state open --json number --jq '.[0].number')"
+          fi
+
+          # Best-effort, not fatal: this fails until main has a branch-protection
+          # rule requiring the CI check (a one-time repo-admin setting — see
+          # portal/deploy/README.md), and it may also fail harmlessly if
+          # auto-merge is already on from a previous run. Either way, the PR
+          # itself is already open/found above, which is the part that must
+          # succeed; don't fail the whole job over this one.
+          if gh pr merge "$pr_number" --auto --merge; then
+            echo "Auto-merge enabled on PR #$pr_number."
+          else
+            echo "::warning::Could not enable auto-merge on PR #$pr_number (likely no branch-protection rule on main yet, or it's already on). The PR is open regardless — see portal/deploy/README.md."
+          fi

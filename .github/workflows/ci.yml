@@ -1,0 +1,36 @@
+name: CI
+
+# Runs the Django test suite + deploy checks on every push to develop and on
+# every PR targeting main. This is what auto-pr.yml's auto-merge actually
+# waits on — see the branch-protection note in that workflow's comments.
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: portal/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Django system checks
+        run: python manage.py check
+
+      - name: Test suite
+        run: python manage.py test
