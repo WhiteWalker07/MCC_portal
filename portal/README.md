@@ -69,30 +69,34 @@ integration tests, all green) and `python manage.py check --deploy`.
 
 ## Deploying on the lab PC
 
-The lab PC is a **blank Ubuntu Server 24.04 LTS** machine (chosen over Windows
-specifically because it's a dedicated box with no other use — native
-`systemd` for service supervision and scheduled jobs beats fighting Windows
-Update reboots and NSSM on an unattended server).
+The lab PC is a **blank Windows Server** machine, dedicated to this. (An
+Ubuntu Server 24.04 LTS path exists too and is fully built — see
+[`deploy/README-linux.md`](deploy/README-linux.md) — in case the target
+machine changes again; this OS decision has flipped more than once already
+this session.)
 
-**[`deploy/setup.sh`](deploy/setup.sh) is the actual setup** — one script that
-checks and installs every dependency (Python, Caddy, `ufw`, …), sets the app
-up as a `systemd` service with `gunicorn`, wires the hourly deadline sweep and
-nightly backup as `systemd` timers, configures the firewall, and disables
-sleep. Safe to re-run.
+**[`deploy/setup.ps1`](deploy/setup.ps1) is the actual setup** — one script,
+run from an **elevated PowerShell**, that checks and installs every dependency
+(Python, Git, Caddy, NSSM — fetched directly from each vendor, not `winget`,
+since Server Core doesn't have it), sets the app up as a Windows service
+(`MCCPortal`, running Waitress — `gunicorn` doesn't run on Windows), wires the
+hourly deadline sweep and nightly backup as Scheduled Tasks, opens the
+firewall, and disables sleep/hibernate. Safe to re-run.
 
-```bash
+```powershell
 git clone https://github.com/WhiteWalker07/MCC_portal.git
-cd MCC_portal/portal
-cp .env.example .env && nano .env    # GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET at minimum
-sudo bash deploy/setup.sh
+cd MCC_portal\portal
+Copy-Item .env.example .env; notepad .env    # GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET at minimum
+.\deploy\setup.ps1
 ```
 
-**[`deploy/README.md`](deploy/README.md)** covers everything that script
-can't do for you — the DNS-01 HTTPS setup (needs IT to name a DNS provider
-first), registering the real Google OAuth redirect URI, day-to-day operations
-(deploying an update, checking logs), and testing a backup restore. Whoever
-runs `setup.sh` and picks the DNS-01 provider becomes that certificate's named
-owner in `../docs/PIC.md` §3 — a lapsed cert silently breaks sign-in.
+**[`deploy/README-windows.md`](deploy/README-windows.md)** covers everything
+that script can't do for you — the DNS-01 HTTPS setup (needs IT to name a DNS
+provider first), registering the real Google OAuth redirect URI, day-to-day
+operations (deploying an update, checking logs), and testing a backup
+restore. Whoever runs `setup.ps1` and picks the DNS-01 provider becomes that
+certificate's named owner in `../docs/PIC.md` §3 — a lapsed cert silently
+breaks sign-in.
 
 ## Roles are still data, not code
 
