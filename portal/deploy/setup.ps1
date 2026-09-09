@@ -126,8 +126,13 @@ Write-Step "Checking Caddy"
 $CaddyExe = Join-Path $ToolsDir "caddy.exe"
 if (-not (Test-Path $CaddyExe)) {
     Write-Host "   downloading Caddy..."
+    # Pinned, like Python and Git above -- Caddy's release assets embed the
+    # version in the filename (caddy_2.11.4_windows_amd64.zip, not
+    # caddy_windows_amd64.zip), so there's no stable "latest" URL the way
+    # some repos offer; .../releases/latest/download/<name> 404s here because
+    # that exact name has never actually existed in any release.
     $caddyZip = Join-Path $env:TEMP "caddy.zip"
-    Invoke-WebRequest -Uri "https://github.com/caddyserver/caddy/releases/latest/download/caddy_windows_amd64.zip" -OutFile $caddyZip
+    Invoke-WebRequest -Uri "https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_windows_amd64.zip" -OutFile $caddyZip
     Expand-Archive -Path $caddyZip -DestinationPath $ToolsDir -Force
     Remove-Item $caddyZip -Force
     Write-Ok "installed Caddy to $CaddyExe"
