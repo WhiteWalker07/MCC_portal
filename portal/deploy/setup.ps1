@@ -65,12 +65,31 @@ Write-Step "Setting up MCC Portal in $AppDir"
 Write-Step "Checking Python"
 
 $pythonOk = $false
-if (Test-CommandExist python) {
-    $verOut = (& python --version) 2>&1
-    if ($verOut -match "Python (\d+)\.(\d+)") {
-        $maj = [int]$Matches[1]; $min = [int]$Matches[2]
-        if ($maj -gt 3 -or ($maj -eq 3 -and $min -ge 10)) { $pythonOk = $true }
+$verOut = ""
+$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+if ($pythonCmd -and $pythonCmd.Source -notmatch "\\WindowsApps\\python[0-9.]*\.exe$") {
+    # Deliberately no `2>&1` on the native call: under $ErrorActionPreference =
+    # "Stop", PowerShell 5.1 wraps each redirected stderr line into a
+    # terminating NativeCommandError, which crashed this exact line the first
+    # time a broken "python" resolved to something that writes to stderr. The
+    # try/catch is a second, independent safety net for any other way a
+    # native call here could misbehave.
+    try {
+        $verOut = & python --version
+        if ($LASTEXITCODE -eq 0 -and $verOut -match "Python (\d+)\.(\d+)") {
+            $maj = [int]$Matches[1]; $min = [int]$Matches[2]
+            if ($maj -gt 3 -or ($maj -eq 3 -and $min -ge 10)) { $pythonOk = $true }
+        }
+    } catch {
+        Write-Warn "Existing 'python' at $($pythonCmd.Source) didn't run cleanly ($($_.Exception.Message)) -- installing a fresh one."
+        # Fall through to installing a real one below.
     }
+} elseif ($pythonCmd) {
+    # This is Windows' "python" App Execution Alias -- a stub that either
+    # opens the Microsoft Store or, run with arguments, errors outright. It's
+    # discoverable via Get-Command like a real executable, so checking
+    # existence alone isn't enough; it has to be excluded by path.
+    Write-Warn "Found Windows' python stub (App Execution Alias) at $($pythonCmd.Source) -- that's not a real Python. Installing the real one."
 }
 
 if (-not $pythonOk) {
@@ -274,13 +293,17 @@ Write-Ok "nightly backup task registered (02:30)"
 # ── 11. Firewall ─────────────────────────────────────────────────────────────
 
 Write-Step "Configuring the firewall"
-netsh advfirewall firewall show rule name="MCC Portal HTTP" >$null 2>&1
-if ($LASTEXITCODE -ne 0) {
-    netsh advfirewall firewall add rule name="MCC Portal HTTP" dir=in action=allow protocol=TCP localport=80 | Out-Null
-}
-netsh advfirewall firewall show rule name="MCC Portal HTTPS" >$null 2>&1
-if ($LASTEXITCODE -ne 0) {
-    netsh advfirewall firewall add rule name="MCC Portal HTTPS" dir=in action=allow protocol=TCP localport=443 | Out-Null
+# No `2>&1` here either -- same reasoning as the Python check above. netsh's
+# own exit code is reliable enough on its own; stdout is suppressed, stderr
+# is left alone so it can't be promoted into a terminating error.
+foreach ($rule in @(
+    @{ Name = "MCC Portal HTTP"; Port = 80 },
+    @{ Name = "MCC Portal HTTPS"; Port = 443 }
+)) {
+    netsh advfirewall firewall show rule name="$($rule.Name)" >$null
+    if ($LASTEXITCODE -ne 0) {
+        netsh advfirewall firewall add rule name="$($rule.Name)" dir=in action=allow protocol=TCP localport=$($rule.Port) | Out-Null
+    }
 }
 Write-Ok "firewall rules for 80/443 in place (Waitress itself stays bound to loopback, unreachable directly)"
 
