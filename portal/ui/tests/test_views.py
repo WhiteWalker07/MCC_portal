@@ -366,6 +366,55 @@ class PortalViewTests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.status, TaskStatus.DONE)
 
+    def test_coordinator_completion_requires_drive_link_and_notifies_club(self):
+        request_obj = Request.objects.create(
+            type="Coverage",
+            event_name="Fest",
+            contact_email=COMMITTEE_EMAIL,
+            venue="Auditorium",
+            status=RequestStatus.ACCEPTED,
+            event_start=timezone.now() - timedelta(hours=3),
+            event_end=timezone.now() - timedelta(hours=1),
+        )
+        task = Task.objects.create(
+            request=request_obj,
+            req_type="Coverage",
+            ref_code="SPT_1",
+            task="Event Coordinator",
+            member="Asha",
+            email=MEMBER_EMAIL,
+            points=4,
+            status=TaskStatus.CONFIRMED,
+            event_start=request_obj.event_start,
+            event_end=request_obj.event_end,
+            event_name="Fest",
+        )
+
+        self.client.force_login(self.member_user)
+
+        # No link -> refused, nothing changes, nobody's notified.
+        refused = self.client.post(reverse("task-complete", args=[task.pk]))
+        self.assertRedirects(refused, reverse("task-list"))
+        task.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.CONFIRMED)
+        self.assertEqual(len(mail.outbox), 0)
+
+        # With a link, it completes, the link lands on the request, and the
+        # club is notified.
+        completed = self.client.post(
+            reverse("task-complete", args=[task.pk]),
+            {"content_links": "https://drive.example/fest"},
+        )
+        self.assertRedirects(completed, reverse("task-list"))
+        task.refresh_from_db()
+        request_obj.refresh_from_db()
+        self.assertEqual(task.status, TaskStatus.DONE)
+        self.assertEqual(request_obj.content_links, "https://drive.example/fest")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(COMMITTEE_EMAIL, mail.outbox[0].to)
+        self.assertIn("Covered", mail.outbox[0].subject)
+        self.assertIn("https://drive.example/fest", mail.outbox[0].body)
+
     def test_task_list_requires_team_membership(self):
         # Redirects to home(), which itself redirects an authenticated user on
         # to request-list — assert the immediate hop only, not the full chain.

@@ -1,17 +1,15 @@
 """
 Confirming a request (docs/PRD.md §5.3).
 
-Ported from `server/src/engine/confirm.ts`. Shared by two paths: auto-acceptance
-of an ungated request, and a secretary approving a gated one.
-
-For every filled, not-yet-confirmed task: mark it CONFIRMED, credit its points
-to the assignee, and add it to the roster if it's a contact-facing role. Then
-write the roster onto the request, move it to 'Request Accepted', and send the
-invitations.
+Ported from `server/src/engine/confirm.ts`, since adapted: points are now
+credited on task *completion*, not here (see engine/workflow.py's
+`_award_completion_points`) — confirming only locks a task in as CONFIRMED and
+adds it to the roster if it's a contact-facing role. Then the roster is written
+onto the request, it moves to 'Request Accepted', and the invitations go out.
 
 **Idempotency matters here.** Tasks already CONFIRMED or DONE are skipped, so
-approving twice — or a retry after a partial failure — can never award the same
-points a second time.
+approving twice — or a retry after a partial failure — can never re-notify or
+re-add the same roster entry twice.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ from core.activity import log_activity
 from core.constants import ROSTER_ROLES, RequestStatus, TaskStatus
 from services import email as email_service
 
-from .notify import award_points, notify_assignee
+from .notify import notify_assignee
 
 
 def confirm_request(request_obj) -> None:
@@ -37,7 +35,7 @@ def confirm_request(request_obj) -> None:
             request_obj=request_obj,
             ref_code=task.ref_code,
             member=task.email,
-            detail=f"{task.task} confirmed (+{task.points or 0} pts)",
+            detail=f"{task.task} confirmed ({task.points or 0} pts on completion)",
         )
 
     email_service.send(
@@ -58,7 +56,6 @@ def _commit_confirmation(request_obj):
     """Everything that touches the database, in one transaction."""
     roster: list[dict] = []
     newly_confirmed = []
-    points_by_email: dict[str, int] = {}
 
     for task in request_obj.tasks.select_for_update():
         if task.status == TaskStatus.UNFILLED or not task.email:
@@ -74,20 +71,13 @@ def _commit_confirmation(request_obj):
                 }
             )
 
-        # Already handled on an earlier run — don't re-award or re-notify.
+        # Already handled on an earlier run — don't re-notify.
         if task.status in (TaskStatus.CONFIRMED, TaskStatus.DONE):
             continue
 
         task.status = TaskStatus.CONFIRMED
-        task.points_awarded = True
-        task.save(update_fields=["status", "points_awarded"])
-
-        key = task.email.lower()
-        points_by_email[key] = points_by_email.get(key, 0) + (task.points or 0)
+        task.save(update_fields=["status"])
         newly_confirmed.append(task)
-
-    for member_email, points in points_by_email.items():
-        award_points(member_email, points)
 
     request_obj.status = RequestStatus.ACCEPTED
     request_obj.roster = roster

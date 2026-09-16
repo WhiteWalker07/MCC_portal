@@ -46,9 +46,11 @@ class RequestStatus:
         (REJECTED, REJECTED),
     ]
 
-    #: States in which assigned work counts as confirmed, so points are awarded
-    #: on assignment rather than on approval. (`CONFIRMED_STATES` in the old
-    #: engine/assignment.ts.)
+    #: States in which a newly-added or reassigned task should land as CONFIRMED
+    #: rather than PROPOSED-awaiting-approval — the request itself has already
+    #: cleared that gate. (`CONFIRMED_STATES` in the old engine/assignment.ts.)
+    #: Points are a separate concern, earned on task completion regardless of
+    #: request status — see engine/workflow.py's `_award_completion_points`.
     CONFIRMED_STATES = frozenset({ACCEPTED, EVENT_COVERED, READY_TO_POST, POSTED})
 
     #: Requests that can no longer be acted on from the Assignments view.

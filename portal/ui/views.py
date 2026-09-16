@@ -23,7 +23,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.constants import RequestStatus, RequestType, TaskStatus
+from core.constants import TASK_EVENT_COORDINATOR, RequestStatus, RequestType, TaskStatus
 from core.csv_import import import_rows, parse_csv
 from core.decorators import secretary_or_admin_required, team_required
 from core.models import (
@@ -38,7 +38,6 @@ from core.roles import can_assign, can_edit_venue, can_read_request, can_strike
 from engine.assign import eligible_members
 from engine.assignment import perform_swap, validate_member
 from engine.confirm import confirm_request
-from engine.notify import award_points
 from engine.pipeline import compute_deadline
 from engine.workflow import complete_task, process_new_request, reject_request, schedule_posts
 from services.calendar import calendar_service
@@ -276,6 +275,18 @@ def task_complete(request, pk):
     if task.awaits_event:
         messages.error(request, "You can't mark this done until the event has started.")
         return redirect("task-list")
+
+    # The Event Coordinator's own completion is how coverage gets handed back
+    # to the requesting club -- they attach the drive link right here, and
+    # engine.workflow.complete_task emails the club once it's saved.
+    is_coverage_handoff = task.task == TASK_EVENT_COORDINATOR and task.req_type == RequestType.COVERAGE
+    if is_coverage_handoff:
+        drive_link = request.POST.get("content_links", "").strip()
+        if not drive_link:
+            messages.error(request, "Add the drive link before marking coverage complete.")
+            return redirect("task-list")
+        task.request.content_links = drive_link
+        task.request.save(update_fields=["content_links"])
 
     task.status = TaskStatus.DONE
     task.completed_at = timezone.now()
@@ -533,6 +544,8 @@ def assignment_add(request, request_pk):
 
     confirmed_state = request_obj.status in RequestStatus.CONFIRMED_STATES
     with transaction.atomic():
+        # points_awarded stays False -- points are earned on completion (see
+        # engine/workflow.py's `_award_completion_points`), not on assignment.
         new_task = Task.objects.create(
             request=request_obj,
             req_type=request_obj.type,
@@ -545,7 +558,6 @@ def assignment_add(request, request_pk):
             email=member.email,
             phone=member.phone or "",
             points=task_type.points,
-            points_awarded=confirmed_state,
             deadline=compute_deadline(task_type, request_obj, timezone.now()),
             status=TaskStatus.CONFIRMED if confirmed_state else TaskStatus.PROPOSED,
             coordinator_email=request_obj.coordinator_email or "",
@@ -554,8 +566,6 @@ def assignment_add(request, request_pk):
             event_end=request_obj.event_end,
             venue=request_obj.venue or "",
         )
-        if confirmed_state:
-            award_points(member.email, task_type.points)
 
     from engine.notify import notify_assignee
     from core.activity import log_activity
