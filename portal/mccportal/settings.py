@@ -220,6 +220,19 @@ SOCIALACCOUNT_ADAPTER = "accounts.adapters.PortalSocialAccountAdapter"
 # Skip allauth's "continue with Google?" interstitial — the button already said so.
 SOCIALACCOUNT_LOGIN_ON_GET = True
 
+# CALENDAR_ENABLED also gates the Calendar OAuth scope requested at login (see
+# SOCIALACCOUNT_PROVIDERS below) — no point prompting everyone for Calendar
+# access on a box where the feature is off (local dev, or before rollout).
+CALENDAR_ENABLED = env_bool("CALENDAR_ENABLED", False)
+_calendar_scopes = (
+    [
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/calendar.events",
+    ]
+    if CALENDAR_ENABLED
+    else []
+)
+
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "APP": {
@@ -227,9 +240,16 @@ SOCIALACCOUNT_PROVIDERS = {
             "secret": env("GOOGLE_CLIENT_SECRET"),
             "key": "",
         },
-        "SCOPE": ["profile", "email"],
+        "SCOPE": ["profile", "email", *_calendar_scopes],
         "AUTH_PARAMS": {
-            "access_type": "online",
+            # offline + prompt=consent only once Calendar is enabled: that's
+            # what makes Google issue a refresh token, and re-issue one on
+            # every login rather than just the first (self-heals if a member
+            # ever revokes access from myaccount.google.com/permissions). See
+            # services/calendar.py — IT declined domain-wide delegation for a
+            # service account, so each member consents individually instead.
+            "access_type": "offline" if CALENDAR_ENABLED else "online",
+            **({"prompt": "consent"} if CALENDAR_ENABLED else {}),
             # Pre-filters Google's account chooser to the institute domain. This
             # is a convenience only — Google does not guarantee it, which is why
             # PortalSocialAccountAdapter enforces the domain server-side.
@@ -237,6 +257,11 @@ SOCIALACCOUNT_PROVIDERS = {
         },
     }
 }
+# Persists each member's own Google OAuth token (allauth's SocialToken) so
+# services/calendar.py can act on THEIR calendar later from a request that
+# isn't theirs — auto-assignment, coordinator reassignment, the deadline cron
+# all check/book members other than whoever is logged in.
+SOCIALACCOUNT_STORE_TOKENS = True
 
 # Fallback domain gate, used only until PortalSettings exists in the database
 # (i.e. before the first `seed_real_data` run).
@@ -316,11 +341,9 @@ EMAIL_TIMEOUT = 10  # never let a stalled relay hang a request
 
 
 # ── Calendar (optional) ──────────────────────────────────────────────────────
-# Path to, or inline contents of, a Google service-account JSON with domain-wide
-# delegation. Unset → services/calendar.py uses its logging stub and every
-# calendar call becomes a no-op. See docs/PIC.md §3.
-
-CALENDAR_SERVICE_ACCOUNT_JSON = env("CALENDAR_SERVICE_ACCOUNT_JSON")
+# CALENDAR_ENABLED itself is defined above (it also gates the OAuth scope
+# request at login — see SOCIALACCOUNT_PROVIDERS). Off → services/calendar.py
+# uses its logging stub and every calendar call becomes a no-op.
 
 
 # ── Backups ──────────────────────────────────────────────────────────────────

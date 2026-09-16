@@ -2,9 +2,12 @@
 Manual assignment and reassignment (docs/PRD.md §5.5).
 
 Ported from `server/src/engine/assignment.ts`: validate a specific member for a
-task, and swap a task's assignee with all the bookkeeping that implies — points
-moved off the old holder and onto the new one, coordinator propagation,
-notifications both ways, and an audit entry.
+task, and swap a task's assignee with all the bookkeeping that implies —
+clawing back points from the old holder if any had already been credited
+(points are earned on completion, not assignment — see
+engine/workflow.py's `_award_completion_points`; the new holder earns their
+own on completion of the reassigned task, never a hand-me-down), coordinator
+propagation, notifications both ways, and an audit entry.
 """
 
 from __future__ import annotations
@@ -110,14 +113,19 @@ def _commit_swap(task, new_member, request_obj, old_email: str) -> None:
     task.email = new_member.email
     task.phone = new_member.phone or ""
     task.status = TaskStatus.CONFIRMED if confirmed_state else TaskStatus.PROPOSED
-    task.points_awarded = confirmed_state
-    task.save(update_fields=["member", "email", "phone", "status", "points_awarded"])
+    # Points are earned by whoever actually completes the task, not by being
+    # handed it — the new holder starts fresh and earns their own on
+    # completion (engine/workflow.py's `_award_completion_points`).
+    task.points_awarded = False
+    task.timing_applied = False
+    task.save(
+        update_fields=["member", "email", "phone", "status", "points_awarded", "timing_applied"]
+    )
 
-    # The outgoing holder only loses points they were actually credited.
+    # The outgoing holder only loses points they were actually credited —
+    # e.g. reassigning an already-completed task to correct a mistake.
     if had_points and old_email:
         award_points(old_email, -points)
-    if confirmed_state:
-        award_points(new_member.email, points)
 
     # Replacing the coordinator re-points the whole request at the new one, or
     # every other task on it would still escalate to the person who left.

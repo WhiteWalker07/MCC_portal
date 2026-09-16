@@ -21,11 +21,24 @@ with your specific DNS provider's plugin compiled in. The plain binary
 `setup.ps1` downloads doesn't include any DNS provider plugins.
 
 **Ask IT two things:** the subdomain (e.g. `mcc.iimsirmaur.ac.in`) pointed at
-this machine's LAN IP, and which DNS provider hosts `iimsirmaur.ac.in`
-(Cloudflare, Route53, Google Domains, etc. — the Caddy plugin is
-provider-specific).
+this machine's LAN IP, and which DNS provider hosts `iimsirmaur.ac.in`.
+Don't take an internal DNS server's name at face value here (an AD-integrated
+DNS server, `*-ad-vm.iimsirmaur.ac.in`-style, is common and answers fine for
+machines *inside* the network, but it's not what Let's Encrypt's validators —
+which query from the public internet — actually see). Confirm what the public
+internet resolves, from any machine:
 
-Once you know the provider, build Caddy with its plugin using
+```powershell
+Resolve-DnsName -Type NS iimsirmaur.ac.in -Server 8.8.8.8
+```
+
+`iimsirmaur.ac.in` resolves to **Google Cloud DNS**
+(`ns-cloud-e1.googledomains.com` and friends) — worked example below. For a
+different provider, swap the plugin module and Caddyfile block; see
+[Caddy's DNS provider list](https://caddyserver.com/download) for the exact
+module name and its own config syntax (they aren't all shaped alike).
+
+Build Caddy with the plugin using
 [`xcaddy`](https://github.com/caddyserver/xcaddy) — needs a Go toolchain:
 
 ```powershell
@@ -35,11 +48,24 @@ Start-Process msiexec.exe -ArgumentList "/i", "$env:TEMP\go.msi", "/quiet" -Wait
 $env:Path += ";C:\Program Files\Go\bin;$env:USERPROFILE\go\bin"
 
 go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-xcaddy build --with github.com/caddy-dns/<provider>   # e.g. caddy-dns/cloudflare — produces caddy.exe
+xcaddy build --with github.com/caddy-dns/googleclouddns   # produces caddy.exe
 
 Stop-Service Caddy
 Copy-Item .\caddy.exe "C:\mcc-portal-tools\caddy.exe" -Force
 Start-Service Caddy
+```
+
+**Credentials** — a GCP service account with the **DNS Administrator**
+(`roles/dns.admin`) role on the project hosting the zone, and a downloaded
+JSON key for it (GCP Console → IAM & Admin → Service Accounts → that account
+→ Keys → Add Key → JSON). Needs someone with IAM access on that GCP project —
+likely IT, unless you already have it. Put the key file on this machine and
+point Caddy's service at it via an environment variable, same mechanism as
+any other provider's API token would use:
+
+```powershell
+Copy-Item "<path to the downloaded key>.json" "C:\mcc-portal-tools\gcp-dns-key.json"
+& "C:\mcc-portal-tools\nssm.exe" set Caddy AppEnvironmentExtra "GOOGLE_APPLICATION_CREDENTIALS=C:\mcc-portal-tools\gcp-dns-key.json"
 ```
 
 Then replace `C:\mcc-portal-tools\Caddyfile`:
@@ -47,17 +73,18 @@ Then replace `C:\mcc-portal-tools\Caddyfile`:
 ```
 mcc.iimsirmaur.ac.in {
 	tls {
-		dns <provider> {env.DNS_API_TOKEN}
+		dns googleclouddns {
+			gcp_project <your-gcp-project-id>
+		}
 	}
 	reverse_proxy 127.0.0.1:8000
 }
 ```
 
-Give the Caddy service the API token as an environment variable rather than
-pasting it into the Caddyfile — NSSM can inject one per-service:
+(`<your-gcp-project-id>` — the GCP project the service account and DNS zone
+both live in, visible at the top of the GCP Console.)
 
 ```powershell
-& "C:\mcc-portal-tools\nssm.exe" set Caddy AppEnvironmentExtra "DNS_API_TOKEN=your-real-token"
 Restart-Service Caddy
 ```
 
@@ -65,6 +92,14 @@ Watch it get a real certificate: `Get-Content C:\mcc-portal-tools\caddy-stdout.l
 (add `AppStdout`/`AppStderr` via `nssm set Caddy AppStdout ...` first if you
 haven't already — `setup.ps1` doesn't configure Caddy's own log redirection,
 only the app's).
+
+**For a provider other than Google Cloud DNS**, the shape's the same but the
+specifics differ: swap `github.com/caddy-dns/googleclouddns` for that
+provider's module (e.g. `caddy-dns/cloudflare`, `caddy-dns/route53`), and its
+Caddyfile block usually just wants an API token rather than a JSON key file
+— e.g. `dns cloudflare {env.CF_API_TOKEN}` with the token set the same way
+via `AppEnvironmentExtra`. Check that specific module's own README for its
+exact directive names before assuming they match this example.
 
 ## 2. Register the real redirect URI with Google
 

@@ -224,9 +224,8 @@ def reject_request(request_obj, reason: str, by: str) -> None:
 
 def complete_task(task) -> None:
     """
-    Apply the consequences of a task reaching DONE: the completion-timing points
-    modifier, then advancing the parent request if this was the last thing it
-    was waiting on.
+    Apply the consequences of a task reaching DONE: credit its points, then
+    advance the parent request if this was the last thing it was waiting on.
 
     The caller has already set the task to DONE and stamped `completed_at`.
     """
@@ -243,7 +242,15 @@ def complete_task(task) -> None:
         detail=f"{task.task} marked done",
     )
 
-    _apply_timing_modifier(task, request_obj)
+    _award_completion_points(task, request_obj)
+
+    # The coordinator's own completion is the coverage hand-off to the
+    # requesting club -- ui/views.py's task_complete required a drive link
+    # before allowing this, so it's on the request by now. Unconditional on
+    # request status: it's about notifying the club, not advancing the
+    # pipeline (that still only happens from 'Request Accepted', below).
+    if task.task == TASK_EVENT_COORDINATOR and task.req_type == RequestType.COVERAGE:
+        _notify_club_coverage_shared(task, request_obj)
 
     # Only ever advance from 'Request Accepted' — a request that's already
     # covered, ready or posted has moved past this point.
@@ -283,48 +290,74 @@ def complete_task(task) -> None:
         schedule_posts(request_obj)
 
 
-def _apply_timing_modifier(task, request_obj) -> None:
+def _notify_club_coverage_shared(task, request_obj) -> None:
     """
-    Adjust a completed task's points for how promptly it was delivered
-    (docs/PRD.md §5.7).
-
-    Guarded four ways, all of which matter: the coordinator role isn't a
-    deliverable, points must already have been awarded to adjust, `timing_applied`
-    makes it once-only, and an unassigned task has nobody to credit.
+    Tell the requesting club coverage is done and where to find it, right
+    when the Event Coordinator attaches the drive link and marks their own
+    task complete (docs/PRD.md §5 — the coordinator hand-off).
     """
-    if task.task == TASK_EVENT_COORDINATOR:
-        return
-    if not task.points_awarded or task.timing_applied or not task.email:
+    email_service.send(
+        request_obj.contact_email,
+        f"[Covered] {task.ref_code} — {request_obj.event_name}",
+        f"Coverage for {request_obj.event_name} ({task.ref_code}) is complete.\n\n"
+        f"Find the material here:\n{request_obj.content_links or '(no link provided)'}",
+    )
+    log_activity(
+        "coverage-shared",
+        request_obj=request_obj,
+        ref_code=task.ref_code,
+        actor=task.email,
+        detail="Drive link shared with the requesting club",
+    )
+
+
+def _award_completion_points(task, request_obj) -> None:
+    """
+    Credit a completed task's points, adjusted for how promptly it was
+    delivered (docs/PRD.md §5.7) — awarded on completion, not on
+    assignment/confirmation, so nobody is credited for work not yet done.
+
+    Guarded two ways: `points_awarded` makes this once-only (idempotent
+    against a retry after a partial failure), and an unassigned task has
+    nobody to credit. The Event Coordinator role isn't a timed deliverable —
+    it coordinates others rather than producing one — so it gets its flat
+    base points with no early/late modifier.
+    """
+    if task.points_awarded or not task.email:
         return
 
-    reference = task.event_end if task.req_type == RequestType.COVERAGE else task.created_at
-    if reference is None:
-        # Nothing to measure against; mark it handled so we don't retry forever.
-        task.timing_applied = True
-        task.save(update_fields=["timing_applied"])
-        return
-
-    completed_at = task.completed_at or timezone.now()
-    turnaround_hours = (completed_at - reference).total_seconds() / HOUR
-
-    scheme = get_points_scheme()
     base = task.points or 0
-    adjusted = final_points(base, turnaround_hours, scheme)
-    delta = adjusted - base
+    turnaround_hours: float | None = None
 
-    task.points = adjusted
+    if task.task == TASK_EVENT_COORDINATOR:
+        final = base
+    else:
+        reference = task.event_end if task.req_type == RequestType.COVERAGE else task.created_at
+        if reference is None:
+            final = base  # nothing to measure turnaround against
+        else:
+            completed_at = task.completed_at or timezone.now()
+            turnaround_hours = (completed_at - reference).total_seconds() / HOUR
+            final = final_points(base, turnaround_hours, get_points_scheme())
+
+    task.points = final
+    task.points_awarded = True
     task.timing_applied = True
-    task.save(update_fields=["points", "timing_applied"])
+    task.save(update_fields=["points", "points_awarded", "timing_applied"])
 
-    if delta:
-        award_points(task.email, delta)
-        log_activity(
-            "points-adjust",
-            request_obj=request_obj,
-            ref_code=task.ref_code,
-            member=task.email,
-            detail=f"{task.task}: {delta:+d} pts (turnaround {round(turnaround_hours)}h)",
-        )
+    if final:
+        award_points(task.email, final)
+
+    detail = f"{task.task}: +{final} pts"
+    if turnaround_hours is not None:
+        detail += f" (turnaround {round(turnaround_hours)}h)"
+    log_activity(
+        "points-awarded",
+        request_obj=request_obj,
+        ref_code=task.ref_code,
+        member=task.email,
+        detail=detail,
+    )
 
 
 # ── onReadyToPost ────────────────────────────────────────────────────────────

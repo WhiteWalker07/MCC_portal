@@ -122,11 +122,24 @@ class CoverageGatedEventTests(TestCase):
 
 
 class PointsAccrualTests(TestCase):
-    """Check 12: confirmed assignments credit the assignee."""
+    """Check 12: completing a task credits the assignee -- confirmation alone doesn't."""
 
-    def test_assignee_accrues_points(self):
+    def test_assignee_accrues_points_only_after_completion(self):
         build_world()
-        process_new_request(coverage_request(starts_in=timedelta(days=5)))
+        request = coverage_request(starts_in=timedelta(days=5))
+        process_new_request(request)
+        request.refresh_from_db()
 
         asha = TeamMember.objects.get(email=ASHA)
+        self.assertEqual(asha.points, 0)
+
+        tasks = list(request.tasks.filter(email=ASHA))
+        self.assertTrue(tasks)  # sanity: she was actually assigned something
+        for task in tasks:
+            task.status = TaskStatus.DONE
+            task.completed_at = timezone.now()
+            task.save()
+            complete_task(task)
+
+        asha.refresh_from_db()
         self.assertGreater(asha.points, 0)

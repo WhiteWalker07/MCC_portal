@@ -26,6 +26,13 @@
                 title="Available once the event starts on {{ t.event_start|date:'d M Y, H:i' }}">
                 Starts {{ t.event_start|timeuntil }}
               </button>
+            {% elif t.task == "Event Coordinator" and t.req_type == "Coverage" %}
+              <form method="post" action="{% url 'task-complete' t.pk %}" class="stack">
+                {% csrf_token %}
+                <input type="url" name="content_links" class="input" required
+                  placeholder="Drive link for the club (required)">
+                <button class="btn btn--sm btn--primary" type="submit">Share &amp; mark covered</button>
+              </form>
             {% else %}
               <form method="post" action="{% url 'task-complete' t.pk %}">
                 {% csrf_token %}

@@ -1,7 +1,8 @@
 # Optional — only needed if the Google Calendar integration is switched on
-# (CALENDAR_SERVICE_ACCOUNT_JSON set). Without it, services/calendar.py uses its
-# logging stub and the portal runs normally. See docs/PIC.md §3: the Workspace
-# domain-wide delegation this needs is not provisioned yet.
+# (CALENDAR_ENABLED=1). Without it, services/calendar.py uses its logging stub
+# and the portal runs normally. Uses per-member OAuth consent, not a service
+# account — IT declined Workspace domain-wide delegation, see
+# services/calendar.py.
 #
 #   pip install -r requirements-calendar.txt
 

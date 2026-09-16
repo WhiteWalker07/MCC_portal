@@ -1,25 +1,34 @@
 """
 Google Calendar integration (docs/PRD.md §5.12).
 
-Ported from `server/src/services/calendar.ts`, keeping both of its important
-behaviours:
+Per-member OAuth consent, not a service account: IT declined the Workspace
+domain-wide delegation a service account would need, so instead each team
+member grants Calendar access themselves through the same Google sign-in the
+portal already uses (see `SOCIALACCOUNT_PROVIDERS` in settings.py). Their
+token is persisted by django-allauth (`SOCIALACCOUNT_STORE_TOKENS`) and looked
+up here by email — every call site in this codebase checks or writes a
+*different* member's calendar than whoever is logged in (auto-assignment,
+coordinator reassignment, the deadline cron), so there is no "current user"
+token to reuse.
 
-* **Auto-fallback.** With no service-account credentials configured, every call
-  becomes a logged no-op. Development and production therefore run identical
-  code paths, and the portal works fine before the Workspace delegation this
-  needs is provisioned (docs/PIC.md §3 records it as outstanding).
+Two fallback layers, both intentional, both ported from the old design:
 
-* **Fail open.** If a calendar lookup errors, `is_free` returns True. A flaky
-  Google API must never be the reason an event goes unstaffed — a double-booked
-  photographer is a smaller problem than no photographer.
+* **Auto-fallback.** With `CALENDAR_ENABLED` off, every call becomes a logged
+  no-op — dev/test runs the same code paths as production without hitting
+  Google.
+* **Fail open, per member.** A member who hasn't (re)consented yet, or whose
+  token fails to refresh (e.g. revoked from
+  myaccount.google.com/permissions), is treated as free/no-op for *them
+  only* — one person's missing consent must never block the whole assignment
+  pipeline. A flaky Google API must never be the reason an event goes
+  unstaffed — a double-booked photographer is a smaller problem than no
+  photographer.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timedelta
-from pathlib import Path
 
 from django.conf import settings
 
@@ -36,7 +45,7 @@ REMINDER_MINUTES = 30
 
 
 class StubCalendar:
-    """Used whenever credentials aren't configured. Everything is free."""
+    """Used whenever CALENDAR_ENABLED is off. Everything is free."""
 
     configured = False
 
@@ -52,29 +61,71 @@ class StubCalendar:
 
 class GoogleCalendar:
     """
-    Real implementation: a service account with domain-wide delegation,
-    impersonating each member so events land on their own primary calendar.
+    Real implementation: looks up each member's own stored Google OAuth token
+    (granted at their login) and acts on their calendar with it — no service
+    account, no impersonation.
     """
 
     configured = True
 
-    def __init__(self, credentials: dict):
-        self._credentials = credentials
+    def _credentials_for(self, email: str):
+        """
+        The member's live `Credentials`, or `None` if they haven't granted
+        Calendar access yet (no stored refresh token) — callers treat that as
+        the fail-open case, not an error.
+        """
+        from allauth.socialaccount.models import SocialAccount, SocialToken
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+
+        try:
+            account = SocialAccount.objects.get(user__email__iexact=email, provider="google")
+            token = SocialToken.objects.get(account=account)
+        except (SocialAccount.DoesNotExist, SocialToken.DoesNotExist):
+            return None
+        if not token.token_secret:
+            # No refresh token stored yet -- they signed in before the
+            # calendar scope existed, or haven't logged in since
+            # CALENDAR_ENABLED was turned on. They'll get one next time they
+            # sign in (access_type=offline + prompt=consent, see settings.py).
+            return None
+
+        app = settings.SOCIALACCOUNT_PROVIDERS["google"]["APP"]
+        creds = Credentials(
+            token=token.token,
+            refresh_token=token.token_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=app["client_id"],
+            client_secret=app["secret"],
+            scopes=SCOPES,
+        )
+        # Always refresh rather than trusting locally-cached expiry: it's one
+        # cheap round trip, and it self-heals a stale/incorrect `expires_at`
+        # instead of surfacing a 401 to the caller. A RefreshError (token
+        # revoked) propagates up to is_free/_insert's own try/except, which
+        # already fail open.
+        creds.refresh(Request())
+        token.token = creds.token
+        token.expires_at = creds.expiry
+        token.save(update_fields=["token", "expires_at"])
+        return creds
 
     def _service(self, user_email: str):
-        from google.oauth2 import service_account
         from googleapiclient.discovery import build
 
-        creds = service_account.Credentials.from_service_account_info(
-            self._credentials, scopes=SCOPES
-        ).with_subject(user_email)
+        creds = self._credentials_for(user_email)
+        if creds is None:
+            return None
         return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
     def is_free(self, email: str, start: datetime, end: datetime) -> bool:
         try:
+            service = self._service(email)
+            if service is None:
+                logger.info("calendar: %s hasn't granted Calendar access yet, treating as free", email)
+                return True
             response = (
-                self._service(email)
-                .freebusy()
+                service.freebusy()
                 .query(
                     body={
                         "timeMin": start.isoformat(),
@@ -98,7 +149,11 @@ class GoogleCalendar:
 
     def _insert(self, email: str, title: str, start: datetime, end: datetime, description: str) -> None:
         try:
-            self._service(email).events().insert(
+            service = self._service(email)
+            if service is None:
+                logger.info("[calendar:no-consent] hold/reminder skipped -> %s | %s", email, title)
+                return
+            service.events().insert(
                 calendarId="primary",
                 body={
                     "summary": title,
@@ -111,14 +166,6 @@ class GoogleCalendar:
             logger.error("calendar insert(%s, %r) failed: %s", email, title, exc)
 
 
-def _load_credentials(raw: str) -> dict:
-    """`raw` is either inline JSON or a path to a service-account key file."""
-    value = raw.strip()
-    if value.startswith("{"):
-        return json.loads(value)
-    return json.loads(Path(value).read_text(encoding="utf-8"))
-
-
 _cached = None
 
 
@@ -128,17 +175,12 @@ def calendar_service():
     if _cached is not None:
         return _cached
 
-    raw = getattr(settings, "CALENDAR_SERVICE_ACCOUNT_JSON", "")
-    if not raw:
+    if not getattr(settings, "CALENDAR_ENABLED", False):
         _cached = StubCalendar()
         return _cached
 
-    try:
-        _cached = GoogleCalendar(_load_credentials(raw))
-        logger.info("calendar: using Google Calendar")
-    except Exception as exc:
-        logger.error("calendar: bad configuration, falling back to stub: %s", exc)
-        _cached = StubCalendar()
+    _cached = GoogleCalendar()
+    logger.info("calendar: using per-member Google Calendar (OAuth consent)")
     return _cached
 
 
