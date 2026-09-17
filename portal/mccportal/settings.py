@@ -45,6 +45,28 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(BASE_DIR / ".env")
 
 
+# ── IPv4-only DNS resolution ─────────────────────────────────────────────────
+# Seen on a lab-PC's campus connection: it advertises an IPv6 route to
+# smtp.gmail.com that doesn't actually work. `socket.create_connection` tries
+# every address `getaddrinfo` returns, in order -- so when a dead IPv6 address
+# sorts first, Python hangs on it until TCP times out, and never reaches the
+# working IPv4 one. Symptom that gave this away: `Test-NetConnection` (IPv4
+# only) succeeded instantly against the exact same host:port that smtplib
+# timed out on. Nothing this app talks to (SMTP, Google OAuth, Calendar API)
+# needs IPv6 specifically, so forcing IPv4-only sidesteps the whole class of
+# failure everywhere, not just email.
+import socket
+
+_orig_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
+socket.getaddrinfo = _ipv4_only_getaddrinfo
+
+
 def env(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
