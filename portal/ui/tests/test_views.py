@@ -45,6 +45,8 @@ MEMBER_EMAIL = "asha@iimsirmaur.ac.in"
 OTHER_VERTICAL_EMAIL = "priyal@iimsirmaur.ac.in"
 SAME_VERTICAL_EMAIL = "ishan@iimsirmaur.ac.in"
 PLAIN_EMAIL = "student@iimsirmaur.ac.in"
+GRAPHIC_DESIGNER_EMAIL = "sanjana@iimsirmaur.ac.in"
+OTHER_GRAPHIC_DESIGNER_EMAIL = "aisha@iimsirmaur.ac.in"
 
 
 class PortalViewTests(TestCase):
@@ -55,6 +57,8 @@ class PortalViewTests(TestCase):
             ("Photo Editor", "Photo Editing", 3, 24, False, False, True, "Photography"),
             ("Vetter", "Vetting", 2, 24, False, False, True, ""),
             ("Event Coordinator", "Coordination", 4, 0, True, False, True, ""),
+            ("Graphic Designer", "Graphic design", 5, 24, False, False, True, "Graphic Designs"),
+            ("Content Writer", "Content Writing", 3, 12, True, False, True, "Content Writing"),
         ]:
             TaskType.objects.create(
                 task=task,
@@ -108,12 +112,62 @@ class PortalViewTests(TestCase):
             vertical="Photography",
             skills=["Photography"],
         )
+        cls.graphic_designer = TeamMember.objects.create(
+            email=GRAPHIC_DESIGNER_EMAIL,
+            name="Sanjana Jaiswal",
+            campus="MBA Campus",
+            year=1,
+            vertical="Graphic Designs",
+            skills=["Graphic design"],
+        )
+        cls.other_graphic_designer = TeamMember.objects.create(
+            email=OTHER_GRAPHIC_DESIGNER_EMAIL,
+            name="Aisha Firdouse",
+            campus="MBA Campus",
+            year=1,
+            vertical="Graphic Designs",
+            skills=["Graphic design"],
+        )
 
         cls.admin_user = User.objects.create_user("admin", email=ADMIN_EMAIL)
         cls.secretary_user = User.objects.create_user("secretary", email=SECRETARY_EMAIL)
         cls.committee_user = User.objects.create_user("committee", email=COMMITTEE_EMAIL)
         cls.member_user = User.objects.create_user("member", email=MEMBER_EMAIL)
         cls.plain_user = User.objects.create_user("plain", email=PLAIN_EMAIL)
+
+    # ── profile ──────────────────────────────────────────────────────────────
+
+    def test_profile_shows_team_member_info(self):
+        self.client.force_login(self.member_user)
+        response = self.client.get(reverse("profile"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Photography")
+        self.assertContains(response, "pts")
+        self.assertContains(response, "Team")
+
+    def test_profile_shows_committee_info(self):
+        self.client.force_login(self.committee_user)
+        response = self.client.get(reverse("profile"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sapient")
+        self.assertContains(response, "SPT")
+
+    def test_profile_renders_for_a_plain_user_with_no_roster_entry(self):
+        self.client.force_login(self.plain_user)
+        response = self.client.get(reverse("profile"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "isn't linked")
+
+    def test_profile_requires_sign_in(self):
+        response = self.client.get(reverse("profile"))
+        self.assertEqual(response.status_code, 302)
+
+    def test_team_member_can_update_their_own_phone_number(self):
+        self.client.force_login(self.member_user)
+        response = self.client.post(reverse("profile"), {"phone": "9876543210"})
+        self.assertRedirects(response, reverse("profile"))
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.phone, "9876543210")
 
     # ── sign-in ──────────────────────────────────────────────────────────────
 
@@ -203,7 +257,9 @@ class PortalViewTests(TestCase):
         )
         request_obj = Request.objects.get(event_name="Launch")
         self.assertRedirects(response, reverse("request-detail", args=[request_obj.pk]))
-        self.assertEqual(request_obj.status, RequestStatus.ACCEPTED)
+        # Post requests always go through a POC/Secretary check now, so the
+        # Graphic Designer can be confirmed or overridden at approval time.
+        self.assertEqual(request_obj.status, RequestStatus.PENDING)
         self.assertTrue(request_obj.ref_code.startswith("MEDIA_"))
 
     def test_committee_can_submit_a_coverage_request(self):
@@ -691,6 +747,103 @@ class PortalViewTests(TestCase):
         request_obj.refresh_from_db()
         self.assertEqual(request_obj.status, RequestStatus.ACCEPTED)
 
+    def test_post_pipeline_includes_content_writer_and_graphic_designer(self):
+        request_obj = Request.objects.create(
+            type="Post",
+            event_name="Launch",
+            contact_email=COMMITTEE_EMAIL,
+            platforms=["Instagram"],
+            content_links="http://example.invalid/asset",
+            status=RequestStatus.NEW,
+        )
+        from engine.workflow import process_new_request
+
+        process_new_request(request_obj)
+        task_names = set(request_obj.tasks.values_list("task", flat=True))
+        self.assertEqual(task_names, {"Vetter", "Content Writer", "Graphic Designer"})
+
+    def test_approval_detail_shows_graphic_designer_picker_for_post(self):
+        request_obj = Request.objects.create(
+            type="Post",
+            event_name="Launch",
+            contact_email=COMMITTEE_EMAIL,
+            platforms=["Instagram"],
+            content_links="http://example.invalid/asset",
+            status=RequestStatus.NEW,
+        )
+        from engine.workflow import process_new_request
+
+        process_new_request(request_obj)
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.status, RequestStatus.PENDING)
+
+        self.client.force_login(self.secretary_user)
+        response = self.client.get(reverse("approval-detail", args=[request_obj.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Graphic Designer")
+        self.assertContains(response, GRAPHIC_DESIGNER_EMAIL)
+        self.assertContains(response, OTHER_GRAPHIC_DESIGNER_EMAIL)
+
+    def test_approving_a_post_request_keeps_the_suggested_designer_by_default(self):
+        request_obj = Request.objects.create(
+            type="Post",
+            event_name="Launch",
+            contact_email=COMMITTEE_EMAIL,
+            platforms=["Instagram"],
+            content_links="http://example.invalid/asset",
+            status=RequestStatus.NEW,
+        )
+        from engine.workflow import process_new_request
+
+        process_new_request(request_obj)
+        suggested_email = request_obj.tasks.get(task="Graphic Designer").email
+        self.assertIn(suggested_email, {GRAPHIC_DESIGNER_EMAIL, OTHER_GRAPHIC_DESIGNER_EMAIL})
+
+        self.client.force_login(self.secretary_user)
+        response = self.client.post(
+            reverse("approval-decide", args=[request_obj.pk]),
+            {"decision": "approve", "member_email": ""},
+        )
+        self.assertRedirects(response, reverse("approval-list"))
+
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.status, RequestStatus.ACCEPTED)
+        gd_task = request_obj.tasks.get(task="Graphic Designer")
+        self.assertEqual(gd_task.email, suggested_email)
+        self.assertEqual(gd_task.status, TaskStatus.CONFIRMED)
+
+    def test_approving_a_post_request_can_override_the_graphic_designer(self):
+        request_obj = Request.objects.create(
+            type="Post",
+            event_name="Launch",
+            contact_email=COMMITTEE_EMAIL,
+            platforms=["Instagram"],
+            content_links="http://example.invalid/asset",
+            status=RequestStatus.NEW,
+        )
+        from engine.workflow import process_new_request
+
+        process_new_request(request_obj)
+        suggested_email = request_obj.tasks.get(task="Graphic Designer").email
+        override_email = (
+            OTHER_GRAPHIC_DESIGNER_EMAIL
+            if suggested_email == GRAPHIC_DESIGNER_EMAIL
+            else GRAPHIC_DESIGNER_EMAIL
+        )
+
+        self.client.force_login(self.secretary_user)
+        response = self.client.post(
+            reverse("approval-decide", args=[request_obj.pk]),
+            {"decision": "approve", "member_email": override_email},
+        )
+        self.assertRedirects(response, reverse("approval-list"))
+
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.status, RequestStatus.ACCEPTED)
+        gd_task = request_obj.tasks.get(task="Graphic Designer")
+        self.assertEqual(gd_task.email, override_email)
+        self.assertEqual(gd_task.status, TaskStatus.CONFIRMED)
+
     def test_approvals_forbidden_for_plain_user(self):
         self.client.force_login(self.plain_user)
         response = self.client.get(reverse("approval-list"))
@@ -711,6 +864,24 @@ class PortalViewTests(TestCase):
         response = self.client.get(reverse("portal-admin"))
         self.assertContains(response, "Sapient")
         self.assertContains(response, "Asha")
+
+    def test_admin_can_update_a_members_contact_number(self):
+        self.client.force_login(self.admin_user)
+        response = self.client.post(
+            reverse("set-member-phone"), {"member_email": MEMBER_EMAIL, "phone": "9123456780"}
+        )
+        self.assertRedirects(response, reverse("portal-admin"))
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.phone, "9123456780")
+
+    def test_domain_head_cannot_update_contact_numbers(self):
+        # Master-roster contact editing is secretary/admin only, unlike a
+        # member's own profile self-edit.
+        self.client.force_login(self.member_user)  # Asha, a domain head, not staff
+        response = self.client.post(
+            reverse("set-member-phone"), {"member_email": SAME_VERTICAL_EMAIL, "phone": "9123456780"}
+        )
+        self.assertEqual(response.status_code, 403)
 
     def test_committee_manage_add_and_update(self):
         self.client.force_login(self.secretary_user)

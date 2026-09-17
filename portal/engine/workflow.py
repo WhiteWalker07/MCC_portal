@@ -168,12 +168,15 @@ def process_new_request(request_obj) -> None:
 def _requires_approval(request_obj, settings) -> bool:
     """
     Short-notice Coverage requests get a human sanity check (docs/PRD.md §5.1).
-    Post requests are never gated unless approval-always is on.
+
+    Post requests always get one now: the POC/Secretary does a background
+    check on the submitted content and picks (or confirms) the Graphic
+    Designer at that same moment (ui/views.py's approval_detail).
     """
     if settings.require_approval_always:
         return True
-    if request_obj.type != RequestType.COVERAGE:
-        return False
+    if request_obj.type == RequestType.POST:
+        return True
     if not request_obj.event_start:
         return False
     hours_until = (request_obj.event_start - timezone.now()).total_seconds() / HOUR
@@ -185,9 +188,13 @@ def _approval_email(request_obj, ref_code: str, outcomes) -> str:
         f"  {task}: {member.name} <{member.email}>" if member else f"  {task}: UNFILLED ({reason})"
         for task, member, reason in outcomes
     ]
+    reason = (
+        "event falls inside the approval window"
+        if request_obj.type == RequestType.COVERAGE
+        else "Post requests always need a review before the team is confirmed"
+    )
     return (
-        f"Approval needed for {ref_code} — {request_obj.event_name} "
-        f"(event falls inside the approval window).\n\n"
+        f"Approval needed for {ref_code} — {request_obj.event_name} ({reason}).\n\n"
         f"Proposed team:\n" + "\n".join(lines) + "\n\n"
         "Open the Approvals view to approve or reject.\n"
     )

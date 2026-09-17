@@ -23,7 +23,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.constants import TASK_EVENT_COORDINATOR, RequestStatus, RequestType, TaskStatus
+from core.constants import (
+    TASK_EVENT_COORDINATOR,
+    TASK_GRAPHIC_DESIGNER,
+    RequestStatus,
+    RequestType,
+    TaskStatus,
+)
 from core.csv_import import import_rows, parse_csv
 from core.decorators import secretary_or_admin_required, team_required
 from core.models import (
@@ -36,7 +42,7 @@ from core.models import (
 )
 from core.roles import can_assign, can_edit_venue, can_read_request, can_strike
 from engine.assign import eligible_members
-from engine.assignment import perform_swap, validate_member
+from engine.assignment import override_proposed_assignee, perform_swap, validate_member
 from engine.confirm import confirm_request
 from engine.pipeline import compute_deadline
 from engine.workflow import complete_task, process_new_request, reject_request, schedule_posts
@@ -47,7 +53,9 @@ from .forms import (
     AddTaskForm,
     AvailabilityForm,
     CommitteeForm,
+    MemberPhoneForm,
     PointSchemeForm,
+    ProfilePhoneForm,
     ReassignForm,
     RejectForm,
     RemoveFromTeamForm,
@@ -74,6 +82,28 @@ def home(request):
 def signed_out(request):
     """Landing spot after a domain refusal or an explicit sign-out."""
     return render(request, "ui/signin.html")
+
+
+# ── Profile ──────────────────────────────────────────────────────────────────
+
+
+@login_required
+def profile(request):
+    roles = request.roles
+    phone_form = None
+
+    if roles.member is not None:
+        if request.method == "POST":
+            phone_form = ProfilePhoneForm(request.POST)
+            if phone_form.is_valid():
+                roles.member.phone = phone_form.cleaned_data["phone"].strip()
+                roles.member.save(update_fields=["phone"])
+                messages.success(request, "Phone number updated.")
+                return redirect("profile")
+        else:
+            phone_form = ProfilePhoneForm(initial={"phone": roles.member.phone})
+
+    return render(request, "ui/profile.html", {"roles": roles, "phone_form": phone_form})
 
 
 # ── Requests ─────────────────────────────────────────────────────────────────
@@ -626,10 +656,36 @@ def approval_list(request):
 def approval_detail(request, pk):
     request_obj = get_object_or_404(Request, pk=pk)
     tasks = request_obj.tasks.all()
+
+    # A Post request's Graphic Designer is only a suggestion at this point
+    # (engine/pipeline.py auto-picked it same as everything else) -- offer
+    # the approver a chance to override it right here, same pattern as
+    # manual reassignment elsewhere (blank = keep the suggestion).
+    gd_task = None
+    gd_form = None
+    if request_obj.type == RequestType.POST:
+        gd_task = tasks.filter(task=TASK_GRAPHIC_DESIGNER).first()
+        if gd_task is not None:
+            eligible = eligible_members(
+                gd_task.required_skill,
+                gd_task.at_event,
+                request_obj,
+                _settings(),
+                _team(),
+                calendar_service(),
+            )
+            gd_form = ReassignForm(eligible=eligible)
+
     return render(
         request,
         "ui/approval_detail.html",
-        {"request_obj": request_obj, "tasks": tasks, "reject_form": RejectForm()},
+        {
+            "request_obj": request_obj,
+            "tasks": tasks,
+            "reject_form": RejectForm(),
+            "gd_task": gd_task,
+            "gd_form": gd_form,
+        },
     )
 
 
@@ -643,6 +699,17 @@ def approval_decide(request, pk):
 
     decision = request.POST.get("decision")
     if decision == "approve":
+        if request_obj.type == RequestType.POST:
+            gd_task = request_obj.tasks.filter(task=TASK_GRAPHIC_DESIGNER).first()
+            override_email = request.POST.get("member_email", "").strip().lower()
+            if gd_task is not None and override_email:
+                validation = validate_member(
+                    override_email, gd_task.required_skill, gd_task.at_event, request_obj, _settings()
+                )
+                if not validation.ok:
+                    messages.error(request, f"Graphic Designer: {validation.reason}")
+                    return redirect("approval-detail", pk=request_obj.pk)
+                override_proposed_assignee(gd_task, validation.member)
         confirm_request(request_obj)
         messages.success(request, f"{request_obj.ref_code} approved.")
     elif decision == "reject":
@@ -886,6 +953,29 @@ def set_availability(request):
         detail=f"{previous} -> {next_status}",
     )
     messages.success(request, f"{member.name} marked {'out of work' if next_status == 'out' else 'on work'}.")
+    return redirect("portal-admin")
+
+
+@secretary_or_admin_required
+@require_POST
+def set_member_phone(request):
+    """
+    Secretary/admin updating a team member's contact number from the master
+    roster. Clubs see this number once the member is assigned to their
+    request — request_detail.html's roster cards and the acceptance email
+    (engine/confirm.py's `_roster_email`) both already read `Task.phone`,
+    itself copied from this field when the task is created.
+    """
+    form = MemberPhoneForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Enter a valid member and phone number.")
+        return redirect("portal-admin")
+
+    email = form.cleaned_data["member_email"].strip().lower()
+    member = get_object_or_404(TeamMember, email=email)
+    member.phone = form.cleaned_data["phone"].strip()
+    member.save(update_fields=["phone"])
+    messages.success(request, f"Updated {member.name}'s contact number.")
     return redirect("portal-admin")
 
 

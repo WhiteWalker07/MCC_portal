@@ -26,6 +26,22 @@ from .assign import is_base_eligible
 from .notify import award_points, notify_assignee
 
 
+def override_proposed_assignee(task, member) -> None:
+    """
+    Swap a not-yet-confirmed task's assignee, no bookkeeping beyond the
+    fields themselves -- unlike `perform_swap`, this runs *before* approval,
+    so there's nothing to notify, claw back, or propagate yet (confirm_request
+    does all of that once the request is actually approved). Used by the
+    POC/Secretary's Graphic Designer override at approval time
+    (ui/views.py's approval_decide).
+    """
+    task.member = member.name
+    task.email = member.email
+    task.phone = member.phone or ""
+    task.reason = ""
+    task.save(update_fields=["member", "email", "phone", "reason"])
+
+
 @dataclass(frozen=True)
 class Validation:
     ok: bool

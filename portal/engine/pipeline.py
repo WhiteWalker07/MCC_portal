@@ -9,7 +9,12 @@ touching the database.
     Coverage -> Event Coordinator + the requested shoot roles, then DERIVE a
                 Photo Editor (if a Photographer was asked for) and a Video
                 Editor (if a Videographer was).
-    Post     -> Vetter.
+    Post     -> Vetter + Content Writer (writes the caption) + Graphic
+                Designer (builds the post from the submitted content/proofs
+                -- `content_links`). The Graphic Designer gets auto-picked
+                here like everything else, but it's only a suggestion: the
+                POC/Secretary can override it at approval time
+                (ui/views.py's approval_detail/approval_decide).
 
 Deadlines: Coverage deliverables are measured from the event end plus the task
 type's SLA; at-event roles (sla_hours 0) are due when the event ends. A Post
@@ -21,7 +26,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from core.constants import DERIVED_EDITOR, RequestType, TASK_EVENT_COORDINATOR, TASK_VETTER
+from core.constants import (
+    DERIVED_EDITOR,
+    TASK_EVENT_COORDINATOR,
+    TASK_GRAPHIC_DESIGNER,
+    TASK_VETTER,
+    RequestType,
+)
 
 from .points import base_points_for
 
@@ -57,6 +68,8 @@ def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[Pipel
                 names.append(derived)
     else:
         names.append(TASK_VETTER)
+        names.append("Content Writer")
+        names.append(TASK_GRAPHIC_DESIGNER)
 
     pipeline: list[PipelineTask] = []
     for name in names:

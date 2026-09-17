@@ -27,7 +27,7 @@ from .factories import ASHA, build_world, coverage_request, post_request
 
 
 class PostFlowTests(TestCase):
-    """Checks 1–5: a Post request from a committee, all the way to Posted."""
+    """Checks 1–5: a Post request from a committee, through approval to Posted."""
 
     def setUp(self):
         build_world()
@@ -38,16 +38,19 @@ class PostFlowTests(TestCase):
     def test_reference_code_is_the_committees_first(self):
         self.assertEqual(self.request.ref_code, "MKTG_1")
 
-    def test_post_request_is_auto_accepted(self):
-        # Post requests are never gated unless approval-always is on.
-        self.assertEqual(self.request.status, RequestStatus.ACCEPTED)
+    def test_post_request_requires_approval(self):
+        # Post requests always get a POC/Secretary check now, so they can
+        # confirm or override the Graphic Designer at that moment.
+        self.assertEqual(self.request.status, RequestStatus.PENDING)
 
     def test_vetter_is_assigned_and_confirmed(self):
+        confirm_request(self.request)
         vetter = self.request.tasks.get(task="Vetter")
         self.assertEqual(vetter.status, TaskStatus.CONFIRMED)
         self.assertTrue(vetter.email)
 
     def test_completing_the_vetter_takes_the_request_to_posted(self):
+        confirm_request(self.request)
         vetter = self.request.tasks.get(task="Vetter")
         vetter.status = TaskStatus.DONE
         vetter.completed_at = timezone.now()
@@ -58,6 +61,7 @@ class PostFlowTests(TestCase):
         self.assertEqual(self.request.status, RequestStatus.POSTED)
 
     def test_one_scheduled_post_task_is_created(self):
+        confirm_request(self.request)
         vetter = self.request.tasks.get(task="Vetter")
         vetter.status = TaskStatus.DONE
         vetter.completed_at = timezone.now()

@@ -151,6 +151,20 @@ class RequestForm(forms.ModelForm):
         return cleaned
 
 
+class ProfilePhoneForm(forms.Form):
+    """
+    The one thing a team member may edit about themselves from their own
+    profile — everything else there (points, strikes, skills, vertical,
+    availability) is owned by the engine or an admin/domain-head elsewhere.
+    """
+
+    phone = forms.CharField(
+        max_length=30,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "input", "placeholder": "e.g. 98765 43210"}),
+    )
+
+
 class VenueEditForm(forms.Form):
     """
     Change a Coverage request's venue after submission — venues routinely move
@@ -349,6 +363,22 @@ class VerticalHeadForm(forms.Form):
 class AvailabilityForm(forms.Form):
     member_email = forms.EmailField()
     availability = forms.ChoiceField(choices=[("available", "On work"), ("out", "Out of work")])
+
+
+class MemberPhoneForm(forms.Form):
+    """
+    Secretary/admin editing a team member's contact number directly from the
+    master roster (Admin view) — the same field a member can set themselves
+    on their own profile (ui/views.py's `profile`). Whichever was set last
+    wins; there's no separate "master" copy to reconcile.
+    """
+
+    member_email = forms.EmailField(widget=forms.HiddenInput)
+    phone = forms.CharField(
+        max_length=30,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "input", "placeholder": "e.g. 98765 43210"}),
+    )
 
 
 class PointSchemeForm(forms.ModelForm):
