@@ -114,6 +114,7 @@ TASK_TYPES = [
     ("Video Editor", "Video Editing", 5, 48, False, False, True, "Videography"),
     ("Vetter", "Vetting", 2, 24, False, False, True, ""),
     ("Event Coordinator", "Coordination", 4, 0, True, False, True, ""),
+    ("Graphic Designer", "Graphic design", 5, 24, False, False, True, "Graphic Designs"),
 ]
 
 SLOTS = ["11:00", "14:00", "17:00"]

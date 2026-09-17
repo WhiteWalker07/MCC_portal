@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Profile — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <div class="view-head">
+    <h1>{{ user.get_full_name|default:user.email }}</h1>
+  </div>
+
+  {% if role_badges %}
+    <div class="badges">
+      {% for badge in role_badges %}<span class="badge">{{ badge }}</span>{% endfor %}
+    </div>
+  {% endif %}
+
+  <dl class="dl">
+    <div><dt>Email</dt><dd>{{ user.email }}</dd></div>
+
+    {% if roles.member %}
+      <div><dt>Vertical</dt><dd>{{ roles.member.vertical|default:"—" }}</dd></div>
+      <div><dt>Campus</dt><dd>{{ roles.member.campus|default:"—" }}</dd></div>
+      <div><dt>Year</dt><dd>{{ roles.member.year }}</dd></div>
+      {% if roles.domain_head_of %}
+        <div><dt>Heads</dt><dd>{{ roles.domain_head_of }}</dd></div>
+      {% endif %}
+      <div><dt>Skills</dt><dd>{{ roles.member.skills|join:", "|default:"—" }}</dd></div>
+      <div><dt>Points</dt><dd><span class="chip-pts">{{ roles.member.points }} pts</span></dd></div>
+      <div><dt>Strikes</dt><dd>{{ roles.member.strikes }}</dd></div>
+      <div><dt>Availability</dt><dd>{{ roles.member.get_availability_display }}</dd></div>
+    {% endif %}
+
+    {% if roles.committee %}
+      <div><dt>Body</dt><dd>{{ roles.committee.name }} ({{ roles.committee.acronym }})</dd></div>
+      <div><dt>Type</dt><dd>{{ roles.committee.type }}</dd></div>
+      <div><dt>Campus</dt><dd>{{ roles.committee.campus|default:"—" }}</dd></div>
+    {% endif %}
+  </dl>
+
+  {% if phone_form %}
+    <h2 class="h2">Contact number</h2>
+    <p class="muted">
+      Shown to coordinators and requesters when you're assigned a task. Everything
+      else here (points, strikes, skills, vertical, availability) is managed by
+      your domain head or the Secretary/Admin.
+    </p>
+    <form method="post" class="stack">
+      {% csrf_token %}
+      {{ phone_form.phone }}
+      <button type="submit" class="btn btn--primary btn--sm">Save</button>
+    </form>
+  {% endif %}
+
+  {% if not roles.member and not roles.committee %}
+    <p class="muted">
+      Your account isn't linked to a team roster entry or a committee — you can
+      still raise Post requests as any signed-in institute account.
+    </p>
+  {% endif %}
+</section>
+{% endblock %}

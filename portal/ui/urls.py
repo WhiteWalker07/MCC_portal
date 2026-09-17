@@ -20,6 +20,7 @@ from . import views
 urlpatterns = [
     path("", views.home, name="home"),
     path("signed-out/", views.signed_out, name="signed-out"),
+    path("profile/", views.profile, name="profile"),
 
     path("requests/new/", views.request_new, name="request-new"),
     path("requests/", views.request_list, name="request-list"),
@@ -46,6 +47,7 @@ urlpatterns = [
     path("portal-admin/team-import/", views.team_import, name="team-import"),
     path("portal-admin/vertical-head/", views.set_vertical_head, name="vertical-head"),
     path("portal-admin/availability/", views.set_availability, name="set-availability"),
+    path("portal-admin/phone/", views.set_member_phone, name="set-member-phone"),
     path("portal-admin/points/", views.point_scheme, name="point-scheme"),
     path("portal-admin/committees/", views.committee_manage, name="committee-manage"),
     path("portal-admin/remove-strike/", views.remove_strike, name="remove-strike"),

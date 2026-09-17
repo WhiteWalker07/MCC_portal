@@ -135,15 +135,6 @@ h1 {
   white-space: nowrap;
 }
 
-.topbar__brand::before {
-  content: "";
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: var(--color-dark);
-  flex: 0 0 auto;
-}
-
 .topbar__tag {
   font-family: var(--font-mono);
   font-size: 0.72rem;
@@ -164,6 +155,7 @@ h1 {
 .topbar__user {
   font-size: 0.82rem;
   color: var(--color-muted);
+  text-decoration: none;
   max-width: 30vw;
   overflow: hidden;
   text-overflow: ellipsis;

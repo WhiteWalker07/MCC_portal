@@ -123,6 +123,36 @@
 
 <section class="card stack">
   <h1>Team roster</h1>
+  <p class="muted">Contact numbers shown here are what clubs see once a member is assigned to
+    their request (the request page and the acceptance email both read this same field) — keep
+    it current. Edit any other field (skills, vertical, campus…) via
+    <a href="/admin/core/teammember/">Django admin</a> or a fresh CSV import below.</p>
+  {% if members %}
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Member</th><th>Email</th><th>Contact number</th><th></th></tr></thead>
+        <tbody>
+          {% for m in members %}
+            <tr>
+              <td>{{ m.name }}{% if m.vertical %}<br><span class="muted">{{ m.vertical }}</span>{% endif %}</td>
+              <td class="mono">{{ m.email }}</td>
+              <td>
+                <form method="post" action="{% url 'set-member-phone' %}" class="row">
+                  {% csrf_token %}
+                  <input type="hidden" name="member_email" value="{{ m.email }}" />
+                  <input type="text" name="phone" value="{{ m.phone }}" class="input" placeholder="e.g. 98765 43210" />
+                  <button type="submit" class="btn btn--sm">Save</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No team members yet.</p>
+  {% endif %}
+
   <p class="muted">Remove a member from the team. This deactivates them — future auto-assignment
     skips them and the Dashboard shows them as inactive, but their points, strikes and past tasks
     are kept, and it's reversible (via Django admin, or a fresh CSV import with <code>active=true</code>).</p>

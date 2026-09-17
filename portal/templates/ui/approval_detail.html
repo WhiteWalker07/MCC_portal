@@ -41,9 +41,18 @@
   {% endif %}
 
   <div class="row">
-    <form method="post" action="{% url 'approval-decide' request_obj.pk %}">
+    <form method="post" action="{% url 'approval-decide' request_obj.pk %}" class="stack">
       {% csrf_token %}
       <input type="hidden" name="decision" value="approve" />
+      {% if gd_task %}
+        <label>
+          Graphic Designer
+          {{ gd_form.member_email }}
+          <span class="muted">
+            Suggested: {% if gd_task.email %}{{ gd_task.member }} &lt;{{ gd_task.email }}&gt;{% else %}none — pick one{% endif %}
+          </span>
+        </label>
+      {% endif %}
       <button type="submit" class="btn btn--primary">Approve</button>
     </form>
     <form method="post" action="{% url 'approval-decide' request_obj.pk %}" class="stack">

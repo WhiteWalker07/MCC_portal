@@ -22,7 +22,7 @@
         <span class="topbar__tag">{{ identity_tag }}</span>
       </div>
       <div class="topbar__right">
-        <span class="topbar__user" title="{{ user.email }}">{{ user.get_full_name|default:user.email }}</span>
+        <a class="topbar__user" href="{% url 'profile' %}" title="{{ user.email }}">{{ user.get_full_name|default:user.email }}</a>
         <form action="{% url 'account_logout' %}" method="post" style="display:inline">
           {% csrf_token %}
           <button class="btn btn--sm" type="submit">Sign out</button>

@@ -108,6 +108,7 @@ COMMITTEE_TYPES = ["Club", "Committee", "SIG", "Office"]
 TASK_EVENT_COORDINATOR = "Event Coordinator"
 TASK_VETTER = "Vetter"
 TASK_POST = "Post"
+TASK_GRAPHIC_DESIGNER = "Graphic Designer"
 
 #: Coverage requests derive an editor task from each shoot role that was
 #: requested (docs/PRD.md §5.2).
