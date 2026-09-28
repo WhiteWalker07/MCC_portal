@@ -102,20 +102,22 @@ class Command(BaseCommand):
                 "campus": campus,
                 "year": year,
                 "skills": seed_data.team_skills(year, skills),
-                "active": True,
             }
             _, was_created = TeamMember.objects.update_or_create(
                 email=email.lower(),
                 defaults=shared,
-                # Scores, strikes, headship and availability history belong to
-                # the engine and to decisions made in the portal — a re-seed
-                # must never wipe them.
+                # Scores, strikes, headship, active status and availability
+                # history belong to the engine and to decisions made in the
+                # portal — a re-seed must never wipe them. "active" only ever
+                # gets its seeded default on a brand-new row; an existing
+                # member who was deactivated in the portal stays deactivated.
                 create_defaults={
                     **shared,
                     "phone": "",
                     "points": 0,
                     "strikes": 0,
                     "domain_head_of": "",
+                    "active": True,
                     "availability": "available",
                     "availability_changed_at": now,
                     "on_work_days": 0.0,

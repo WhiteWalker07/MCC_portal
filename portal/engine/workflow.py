@@ -308,6 +308,7 @@ def _notify_club_coverage_shared(task, request_obj) -> None:
         f"[Covered] {task.ref_code} — {request_obj.event_name}",
         f"Coverage for {request_obj.event_name} ({task.ref_code}) is complete.\n\n"
         f"Find the material here:\n{request_obj.content_links or '(no link provided)'}",
+        in_reply_to=email_service.thread_id_for(task.ref_code),
     )
     log_activity(
         "coverage-shared",
@@ -575,9 +576,16 @@ def run_deadline_check() -> dict:
         assignee = (task.email or "").lower()
         try:
             with transaction.atomic():
-                task.status = TaskStatus.LATE
-                task.struck = True
-                task.save(update_fields=["status", "struck"])
+                # Re-check under lock: `overdue` was read without one, so an
+                # overlapping run (a manual invocation racing the scheduled
+                # one) may already have struck this exact task by the time
+                # this transaction starts.
+                locked = Task.objects.select_for_update().get(pk=task.pk)
+                if locked.struck or locked.status != TaskStatus.CONFIRMED:
+                    continue
+                locked.status = TaskStatus.LATE
+                locked.struck = True
+                locked.save(update_fields=["status", "struck"])
                 if coordinator:
                     add_strike(coordinator)
                 if settings.strike_assignee_too and assignee:

@@ -5,7 +5,9 @@ Ported from `server/src/engine/confirm.ts`, since adapted: points are now
 credited on task *completion*, not here (see engine/workflow.py's
 `_award_completion_points`) — confirming only locks a task in as CONFIRMED and
 adds it to the roster if it's a contact-facing role. Then the roster is written
-onto the request, it moves to 'Request Accepted', and the invitations go out.
+onto the request, it moves to 'Request Accepted', and the acceptance email goes
+to the requesting club with the roster CC'd -- so the club and the people
+covering their event are on the same thread from the start.
 
 **Idempotency matters here.** Tasks already CONFIRMED or DONE are skipped, so
 approving twice — or a retry after a partial failure — can never re-notify or
@@ -24,7 +26,7 @@ from .notify import notify_assignee
 
 
 def confirm_request(request_obj) -> None:
-    newly_confirmed, roster = _commit_confirmation(request_obj)
+    newly_confirmed, roster, already_accepted = _commit_confirmation(request_obj)
 
     # Side effects run only after the state change is committed, so a slow or
     # failing mail relay can't leave the database half-updated.
@@ -38,10 +40,19 @@ def confirm_request(request_obj) -> None:
             detail=f"{task.task} confirmed ({task.points or 0} pts on completion)",
         )
 
+    if already_accepted:
+        # A retry or a double-submitted approval landed here after an earlier
+        # call already accepted this request — the club-facing email and the
+        # "accepted" log entry must fire exactly once, so there's nothing left
+        # to do.
+        return
+
     email_service.send(
         request_obj.contact_email,
         f"[Accepted] {request_obj.ref_code} — {request_obj.event_name}",
         _roster_email(request_obj, roster),
+        cc=[entry["email"] for entry in roster if entry.get("email")],
+        message_id=email_service.thread_id_for(request_obj.ref_code),
     )
     log_activity(
         "accepted",
@@ -54,6 +65,20 @@ def confirm_request(request_obj) -> None:
 @transaction.atomic
 def _commit_confirmation(request_obj):
     """Everything that touches the database, in one transaction."""
+    # Lock this row and re-check its status before touching it — two
+    # concurrent calls for the same request (a double-submitted approval, or
+    # a retry racing a still-in-flight first attempt) must not both see "not
+    # yet accepted". This reads the lock through a fresh query rather than
+    # replacing `request_obj` itself, since callers keep using the same
+    # instance afterward (e.g. complete_task via task.request's cached FK).
+    locked_status = (
+        type(request_obj)
+        .objects.select_for_update()
+        .values_list("status", flat=True)
+        .get(pk=request_obj.pk)
+    )
+    already_accepted = locked_status in RequestStatus.CONFIRMED_STATES
+
     roster: list[dict] = []
     newly_confirmed = []
 
@@ -79,11 +104,12 @@ def _commit_confirmation(request_obj):
         task.save(update_fields=["status"])
         newly_confirmed.append(task)
 
-    request_obj.status = RequestStatus.ACCEPTED
-    request_obj.roster = roster
-    request_obj.save(update_fields=["status", "roster"])
+    if not already_accepted:
+        request_obj.status = RequestStatus.ACCEPTED
+        request_obj.roster = roster
+        request_obj.save(update_fields=["status", "roster"])
 
-    return newly_confirmed, roster
+    return newly_confirmed, roster, already_accepted
 
 
 def _roster_email(request_obj, roster: list[dict]) -> str:

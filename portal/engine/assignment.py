@@ -17,13 +17,15 @@ from dataclasses import dataclass
 from django.db import transaction
 
 from core.activity import log_activity
-from core.constants import RequestStatus, TaskStatus
+from core.config import get_points_scheme
+from core.constants import ROSTER_ROLES, RequestStatus, TaskStatus
 from core.models import TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
 
 from .assign import is_base_eligible
 from .notify import award_points, notify_assignee
+from .points import base_points_for
 
 
 def override_proposed_assignee(task, member) -> None:
@@ -107,6 +109,22 @@ def perform_swap(task, new_member, request_obj) -> None:
             f"has been reassigned to {new_member.name}.",
         )
 
+    # The club only needs to hear about this if they already know a team
+    # exists (request already accepted) and the changed role is one they'd
+    # actually meet on the day (ROSTER_ROLES) -- a Vetter/Graphic Designer
+    # swap, or a reassignment before the club's even been told once, isn't
+    # their concern.
+    if task.task in ROSTER_ROLES and request_obj.status in RequestStatus.CONFIRMED_STATES:
+        email_service.send(
+            request_obj.contact_email,
+            f"[Team update] {task.ref_code} — {request_obj.event_name}",
+            f"{task.task} for {request_obj.event_name} ({task.ref_code}) is now "
+            f"{new_member.name} <{new_member.email}>"
+            + (f" · {new_member.phone}" if new_member.phone else "")
+            + ".",
+            in_reply_to=email_service.thread_id_for(task.ref_code),
+        )
+
     log_activity(
         "reassigned",
         request_obj=request_obj,
@@ -134,8 +152,27 @@ def _commit_swap(task, new_member, request_obj, old_email: str) -> None:
     # completion (engine/workflow.py's `_award_completion_points`).
     task.points_awarded = False
     task.timing_applied = False
+    if had_points:
+        # `task.points` doubles as the *final*, timing-adjusted score once
+        # awarded (see `_award_completion_points`) — reset it back to the
+        # role's base value, or the next completion would apply a second
+        # timing multiplier on top of the old one.
+        task.points = base_points_for(task.task, get_points_scheme())
+    # A LATE task being handed off deserves a fresh, independent deadline
+    # watch for its new holder — otherwise `struck=True` permanently hides it
+    # from run_deadline_check (workflow.py), which only looks at struck=False.
+    task.struck = False
     task.save(
-        update_fields=["member", "email", "phone", "status", "points_awarded", "timing_applied"]
+        update_fields=[
+            "member",
+            "email",
+            "phone",
+            "status",
+            "points_awarded",
+            "timing_applied",
+            "points",
+            "struck",
+        ]
     )
 
     # The outgoing holder only loses points they were actually credited —

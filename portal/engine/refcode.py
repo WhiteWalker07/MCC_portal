@@ -44,7 +44,17 @@ def allocate_ref_code(request_obj) -> Allocation:
     Idempotent: a request that already has a code is left alone, so a retried
     call can't burn a second sequence number.
     """
-    if request_obj.ref_code:
+    # Lock this row before checking — request_obj may be a stale in-memory
+    # copy. Without the lock, two concurrent calls for the same request can
+    # both see a blank ref_code, and both allocate one: the loser's write
+    # wins last, orphaning the other committee sequence number it burned.
+    current_ref_code = (
+        type(request_obj)
+        .objects.select_for_update()
+        .values_list("ref_code", flat=True)
+        .get(pk=request_obj.pk)
+    )
+    if current_ref_code:
         return Allocation(ok=False, skipped=True)
 
     email = (request_obj.contact_email or "").strip().lower()

@@ -31,7 +31,7 @@ NAV_ITEMS: list[NavItem] = [
     NavItem("requests", "My Requests", "Requests", "request-list", lambda r: True),
     NavItem("tasks", "My Tasks", "Tasks", "task-list", lambda r: r.is_team),
     NavItem("assignments", "Assignments", "Assign", "assignment-list", lambda r: r.can_reach_assignments),
-    NavItem("approvals", "Approvals", "Approve", "approval-list", lambda r: r.is_secretary),
+    NavItem("approvals", "Approvals", "Approve", "approval-list", lambda r: r.is_staff_side),
     NavItem("dashboard", "Dashboard", "Stats", "dashboard", lambda r: r.is_staff_side),
     NavItem("admin", "Admin", "Admin", "portal-admin", lambda r: r.is_staff_side),
 ]

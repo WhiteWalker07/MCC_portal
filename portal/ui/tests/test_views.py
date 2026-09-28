@@ -328,6 +328,72 @@ class PortalViewTests(TestCase):
         request_obj.refresh_from_db()
         self.assertEqual(request_obj.venue, "Lawn")
 
+    def test_domain_head_can_edit_the_venue_when_staffed_on_the_request(self):
+        # Neither staff, second-year, nor the coordinator — access here must
+        # come purely from being the domain head of a vertical actually
+        # staffed on this request.
+        head = TeamMember.objects.create(
+            email="headonly@iimsirmaur.ac.in",
+            name="Head Only",
+            campus="MBA Campus",
+            year=1,
+            vertical="Content Writing",
+            domain_head_of="Content Writing",
+            skills=["Content Writing"],
+        )
+        head_user = User.objects.create_user("head-only", email=head.email)
+        request_obj = Request.objects.create(
+            type="Coverage",
+            event_name="Fest",
+            contact_email=COMMITTEE_EMAIL,
+            venue="Auditorium",
+            status=RequestStatus.ACCEPTED,
+        )
+        Task.objects.create(
+            request=request_obj, req_type="Coverage", ref_code="SPT_1", task="Content Writer",
+            vertical="Content Writing", email=head.email, member=head.name,
+        )
+
+        self.client.force_login(head_user)
+        response = self.client.post(
+            reverse("request-edit-venue", args=[request_obj.pk]), {"venue": "Lawn"}
+        )
+        # Not asserting the redirect lands on a 200: can_edit_venue and
+        # can_read_request are deliberately separate gates, and this member
+        # isn't the request's requester/coordinator, so request-detail 403s
+        # for them independently of whether the venue edit itself succeeded.
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("request-detail", args=[request_obj.pk]))
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.venue, "Lawn")
+
+    def test_domain_head_of_an_unrelated_vertical_cannot_edit_the_venue(self):
+        # year=1 deliberately, so is_second_year can't also grant access —
+        # this isolates the domain-head branch itself.
+        other_head = TeamMember.objects.create(
+            email="otherhead@iimsirmaur.ac.in",
+            name="Other Head",
+            campus="MBA Campus",
+            year=1,
+            vertical="Photography",
+            domain_head_of="Photography",
+            skills=["Photography"],
+        )
+        other_head_user = User.objects.create_user("other-head", email=other_head.email)
+        request_obj = Request.objects.create(
+            type="Coverage", event_name="Fest", contact_email=COMMITTEE_EMAIL,
+            venue="Auditorium", status=RequestStatus.ACCEPTED,
+        )
+        Task.objects.create(
+            request=request_obj, req_type="Coverage", ref_code="SPT_1", task="Content Writer",
+            vertical="Content Writing", email="someone@iimsirmaur.ac.in", member="Someone",
+        )
+        self.client.force_login(other_head_user)
+        response = self.client.post(
+            reverse("request-edit-venue", args=[request_obj.pk]), {"venue": "Lawn"}
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_stranger_cannot_edit_the_venue(self):
         request_obj = Request.objects.create(
             type="Coverage", event_name="Fest", contact_email=COMMITTEE_EMAIL,
@@ -576,6 +642,52 @@ class PortalViewTests(TestCase):
         self.client.force_login(self.plain_user)
         response = self.client.get(reverse("assignment-list"))
         self.assertEqual(response.status_code, 403)
+
+    def test_assignment_detail_forbidden_for_a_stranger(self):
+        request_obj = Request.objects.create(
+            type="Coverage",
+            event_name="Fest",
+            contact_email=COMMITTEE_EMAIL,
+            venue="Auditorium",
+            roles_needed=["Photographer"],
+            platforms=["Instagram"],
+            status=RequestStatus.NEW,
+            event_start=timezone.now() + timedelta(days=5),
+            event_end=timezone.now() + timedelta(days=5, hours=2),
+        )
+        from engine.workflow import process_new_request
+
+        process_new_request(request_obj)
+
+        # Not staff, not second-year, not a domain head, not this request's
+        # coordinator, no task of theirs on it — no assignment role at all.
+        self.client.force_login(self.plain_user)
+        response = self.client.get(reverse("assignment-detail", args=[request_obj.pk]))
+        self.assertEqual(response.status_code, 403)
+
+    def test_assignment_detail_visible_to_the_coordinator(self):
+        coordinator_member = TeamMember.objects.create(
+            email="coordinator@iimsirmaur.ac.in",
+            name="Coordinator Only",
+            campus="MBA Campus",
+            year=1,  # not a second-year, and not a domain head either
+            vertical="Photography",
+            skills=["Coordination"],
+        )
+        coordinator_user = User.objects.create_user(
+            "coordinator-only", email=coordinator_member.email
+        )
+        request_obj = Request.objects.create(
+            type="Coverage",
+            event_name="Fest",
+            contact_email=COMMITTEE_EMAIL,
+            venue="Auditorium",
+            coordinator_email=coordinator_member.email,
+            status=RequestStatus.ACCEPTED,
+        )
+        self.client.force_login(coordinator_user)
+        response = self.client.get(reverse("assignment-detail", args=[request_obj.pk]))
+        self.assertEqual(response.status_code, 200)
 
     # ── strikes ──────────────────────────────────────────────────────────────
 

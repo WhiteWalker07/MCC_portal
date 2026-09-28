@@ -143,7 +143,12 @@ def can_edit_venue(roles: PortalRoles, request_obj) -> bool:
     """
     if roles.email == (request_obj.contact_email or "").lower():
         return True
-    return can_assign(roles, "", request_obj.coordinator_email)
+    if can_assign(roles, "", request_obj.coordinator_email):
+        return True
+    # can_assign's domain-head branch needs one specific task's vertical —
+    # a venue isn't tied to one, so a domain head qualifies here if they're
+    # actually staffed on this request (mirrors assignment_list's own filter).
+    return bool(roles.is_domain_head) and request_obj.tasks.filter(vertical=roles.domain_head_of).exists()
 
 
 def can_strike(roles: PortalRoles, member) -> bool:

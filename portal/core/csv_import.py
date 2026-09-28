@@ -52,6 +52,7 @@ def import_rows(rows: list[dict]) -> tuple[list[RowResult], dict]:
             continue
 
         skills = [s.strip() for s in (raw.get("skills") or "").replace(",", ";").split(";") if s.strip()]
+        active_cell = (raw.get("active") or "").strip()
         data = {
             "name": name,
             "vertical": (raw.get("vertical") or "").strip(),
@@ -60,7 +61,6 @@ def import_rows(rows: list[dict]) -> tuple[list[RowResult], dict]:
             "skills": skills,
             "campus": (raw.get("campus") or "").strip(),
             "phone": (raw.get("phone") or "").strip(),
-            "active": _parse_bool(raw.get("active"), True),
         }
 
         try:
@@ -69,10 +69,17 @@ def import_rows(rows: list[dict]) -> tuple[list[RowResult], dict]:
                 if existing:
                     for field, value in data.items():
                         setattr(existing, field, value)
+                    # Only touch "active" when the row actually says something —
+                    # a blank/absent column must leave a member's current
+                    # active status alone, not silently reactivate them.
+                    if active_cell:
+                        existing.active = _parse_bool(active_cell, True)
                     existing.save()
                     results.append(RowResult(email=email, status="updated"))
                 else:
-                    TeamMember.objects.create(email=email, points=0, strikes=0, **data)
+                    TeamMember.objects.create(
+                        email=email, points=0, strikes=0, active=_parse_bool(active_cell, True), **data
+                    )
                     results.append(RowResult(email=email, status="created"))
         except Exception as exc:
             results.append(RowResult(email=email, status="error", message=str(exc)))

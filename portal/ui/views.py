@@ -399,8 +399,23 @@ def issue_strike(request):
 @login_required
 def assignment_detail(request, pk):
     roles = request.roles
+    if not roles.can_reach_assignments:
+        raise PermissionDenied("You don't have an assignment role.")
+
     request_obj = get_object_or_404(Request, pk=pk)
     tasks = list(request_obj.tasks.all())
+
+    # Mirrors assignment_list's own filtering: staff/second-years see every
+    # request, everyone else only the ones they actually coordinate or have a
+    # task on in their vertical.
+    if not (roles.is_staff_side or roles.is_second_year):
+        is_coordinator = roles.email == (request_obj.coordinator_email or "").lower()
+        has_domain_task = bool(roles.domain_head_of) and any(
+            t.vertical == roles.domain_head_of for t in tasks
+        )
+        if not (is_coordinator or has_domain_task):
+            raise PermissionDenied("You don't have an assignment role on this request.")
+
     settings = _settings()
     team = _team()
 
