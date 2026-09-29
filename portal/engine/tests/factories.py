@@ -29,6 +29,8 @@ CAMPUS = "Permanent"
 COMMITTEE_EMAIL = "marketing@iimsirmaur.ac.in"
 ASHA = "asha@iimsirmaur.ac.in"
 NEHA = "neha@iimsirmaur.ac.in"
+#: The one second-year on the roster: eligible as Task Supervisor and nothing else.
+SUPERVISOR = "supervisor@iimsirmaur.ac.in"
 
 
 def build_config() -> None:
@@ -36,8 +38,14 @@ def build_config() -> None:
     for task, skill, points, sla, at_event, requestable, internal, vertical in [
         ("Photographer", "Photography", 5, 0, True, True, True, "Photography"),
         ("Photo Editor", "Photo Editing", 3, 24, False, False, True, "Photography"),
-        ("Vetter", "Vetting", 2, 24, False, False, True, ""),
-        ("Event Coordinator", "Coordination", 4, 0, True, False, True, ""),
+        # Legacy: kept so a request accepted before the Vetter was dropped can
+        # still be exercised; no new request creates one.
+        ("Vetter", "Vetting", 2, 24, False, False, False, ""),
+        # No skill: any active first-year can coordinate.
+        ("Event Coordinator", "", 4, 0, True, False, True, ""),
+        ("Content Writer", "Content Writing", 3, 12, False, False, True, "Content Writing"),
+        ("Graphic Designer", "Graphic design", 5, 24, False, False, True, "Graphic Designs"),
+        ("Task Supervisor", "", 0, 0, False, False, True, ""),
     ]:
         TaskType.objects.create(
             task=task,
@@ -57,10 +65,8 @@ def build_config() -> None:
 
     settings = PortalSettings.load()
     settings.sla_hours = 48
-    settings.strike_limit = 3
     settings.campus_strict = True
     settings.require_approval_always = False
-    settings.strike_assignee_too = False
     settings.secretary_emails = ["poc@iimsirmaur.ac.in"]
     settings.admin_emails = ["admin@iimsirmaur.ac.in"]
     settings.allowed_domains = ["iimsirmaur.ac.in"]
@@ -84,20 +90,36 @@ def build_committee(**overrides) -> Committee:
 
 
 def build_team() -> tuple[TeamMember, TeamMember]:
+    """
+    Two first-years who do the work, plus one second-year who only supervises.
+
+    Asha shoots and edits (Photography); Neha writes and designs. The supervisor
+    is created here too but not returned, so `build_world()` keeps its 3-tuple
+    shape — fetch them with `TeamMember.objects.get(email=SUPERVISOR)`.
+    """
     asha = TeamMember.objects.create(
         email=ASHA,
         name="Asha",
         campus=CAMPUS,
-        year=2,
+        year=1,
+        vertical="Photography",
         domain_head_of="Photography",
-        skills=["Photography", "Photo Editing", "Coordination"],
+        skills=["Photography", "Photo Editing"],
     )
     neha = TeamMember.objects.create(
         email=NEHA,
         name="Neha",
         campus=CAMPUS,
+        year=1,
+        vertical="Graphic Designs",
+        skills=["Content Writing", "Graphic design"],
+    )
+    TeamMember.objects.create(
+        email=SUPERVISOR,
+        name="Supervisor",
+        campus=CAMPUS,
         year=2,
-        skills=["Vetting", "Coordination"],
+        skills=[],
     )
     return asha, neha
 

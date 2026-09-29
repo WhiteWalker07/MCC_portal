@@ -11,6 +11,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from django.utils import timezone
+
+from .constants import (
+    EDIT_CUTOFF_HOURS,
+    HOUR,
+    STRIKE_YELLOW,
+    TASK_SUPERVISOR,
+    RequestStatus,
+    RequestType,
+)
 from .models import Committee, PortalSettings, TeamMember
 
 
@@ -31,6 +41,7 @@ class PortalRoles:
     domain_head_of: str = ""
     is_second_year: bool = False
     is_coordinator: bool = False
+    is_supervisor: bool = False
     member: TeamMember | None = None
     committee: Committee | None = None
     names: list[str] = field(default_factory=list)
@@ -42,10 +53,15 @@ class PortalRoles:
 
     @property
     def can_reach_assignments(self) -> bool:
+        """
+        May open the Assignments pages at all. A second-year is *not* let in just
+        for being one any more — they only supervise, and a supervisor gets in
+        (read-only, for their own requests) because they hold that role.
+        """
         return (
             self.is_coordinator
             or self.is_domain_head
-            or self.is_second_year
+            or self.is_supervisor
             or self.is_staff_side
         )
 
@@ -60,14 +76,20 @@ def resolve_roles(email: str) -> PortalRoles:
         return ANONYMOUS
 
     settings = PortalSettings.load()
-    member = TeamMember.objects.filter(email=address).first()
+    # A removed (deactivated) member keeps their row for history but not their
+    # access: no My Tasks, no assignment/strike rights, no supervisor role.
+    row = TeamMember.objects.filter(email=address).first()
+    removed = row is not None and not row.active
+    member = None if removed else row
     committee = Committee.objects.filter(email=address).first()
 
     # "Coordinator" isn't a stored flag — you are one if you currently coordinate
-    # at least one request.
+    # at least one request. Likewise "supervisor". A removed member is neither,
+    # whatever requests still name them, until those are reassigned.
     from .models import Request  # local import: avoids a cycle at module load
 
-    is_coordinator = Request.objects.filter(coordinator_email=address).exists()
+    is_coordinator = not removed and Request.objects.filter(coordinator_email=address).exists()
+    is_supervisor = not removed and Request.objects.filter(supervisor_email=address).exists()
 
     is_secretary = address in _lower_all(settings.secretary_emails)
     is_admin = address in _lower_all(settings.admin_emails)
@@ -80,6 +102,8 @@ def resolve_roles(email: str) -> PortalRoles:
         names.append("team")
     if is_coordinator:
         names.append("coordinator")
+    if is_supervisor:
+        names.append("supervisor")
     if domain_head_of:
         names.append("domainHead")
     if is_secretary:
@@ -97,24 +121,31 @@ def resolve_roles(email: str) -> PortalRoles:
         domain_head_of=domain_head_of,
         is_second_year=bool(member and member.year == 2),
         is_coordinator=is_coordinator,
+        is_supervisor=is_supervisor,
         member=member,
         committee=committee,
         names=names,
     )
 
 
-def can_assign(roles: PortalRoles, task_vertical: str, coordinator_email: str) -> bool:
+def can_assign(
+    roles: PortalRoles, task_vertical: str, coordinator_email: str, task_name: str = ""
+) -> bool:
     """
     May this caller assign or modify a task in `task_vertical` on a request
     coordinated by `coordinator_email`?
 
-    Secretaries, admins and second-years may act anywhere. A domain head may act
-    within their own vertical. An event coordinator may act on the events they
-    coordinate. Ported verbatim from serverRoles.ts's `canAssign`.
+    Secretaries and admins may act anywhere. A domain head may act within their
+    own vertical. An event coordinator may act on the events they coordinate.
+    Being a second-year grants nothing: second-years only supervise.
+
+    The Task Supervisor is the exception to all of that — only a secretary or
+    admin may change who holds it. Not the event coordinator whose work it
+    oversees, and not a domain head either.
     """
+    if task_name == TASK_SUPERVISOR:
+        return roles.is_staff_side
     if roles.is_staff_side:
-        return True
-    if roles.is_second_year:
         return True
     if roles.is_domain_head and task_vertical and roles.domain_head_of == task_vertical:
         return True
@@ -124,13 +155,49 @@ def can_assign(roles: PortalRoles, task_vertical: str, coordinator_email: str) -
 
 
 def can_read_request(roles: PortalRoles, request_obj) -> bool:
-    """Requester, coordinator, secretary or admin. Mirrors routes/requests.ts."""
+    """Requester, coordinator, supervisor, secretary or admin."""
     if roles.is_staff_side:
         return True
+    if not roles.email:
+        # An anonymous caller has email "" — which would match any request whose
+        # coordinator or supervisor field is blank (every Post request).
+        return False
     return roles.email in {
         (request_obj.contact_email or "").lower(),
         (request_obj.coordinator_email or "").lower(),
+        (request_obj.supervisor_email or "").lower(),
     }
+
+
+def _more_than_cutoff_away(request_obj) -> bool:
+    """True while the event is still more than EDIT_CUTOFF_HOURS from now."""
+    if not request_obj.event_start:
+        return False
+    hours_until = (request_obj.event_start - timezone.now()).total_seconds() / HOUR
+    return hours_until > EDIT_CUTOFF_HOURS
+
+
+def _may_amend_schedule(roles: PortalRoles, request_obj) -> bool:
+    if request_obj.type != RequestType.COVERAGE or request_obj.status in RequestStatus.TERMINAL:
+        return False
+    if not (roles.is_staff_side or roles.email == (request_obj.contact_email or "").lower()):
+        return False
+    return _more_than_cutoff_away(request_obj)
+
+
+def can_change_event_time(roles: PortalRoles, request_obj) -> bool:
+    """
+    May this caller move a Coverage request's start/end *times* (never its
+    dates)? The requesting body, or the POC/Admin, and only while the event is
+    still more than 24 hours away — the moment it is inside that window the
+    team is effectively committed and only staff can sort things out by hand.
+    """
+    return _may_amend_schedule(roles, request_obj)
+
+
+def can_edit_subevents(roles: PortalRoles, request_obj) -> bool:
+    """Who may add, edit or delete a Coverage request's sub-events — same rule as the time."""
+    return _may_amend_schedule(roles, request_obj)
 
 
 def can_edit_venue(roles: PortalRoles, request_obj) -> bool:
@@ -151,19 +218,18 @@ def can_edit_venue(roles: PortalRoles, request_obj) -> bool:
     return bool(roles.is_domain_head) and request_obj.tasks.filter(vertical=roles.domain_head_of).exists()
 
 
-def can_strike(roles: PortalRoles, member) -> bool:
+def can_strike(roles: PortalRoles, member, color: str = STRIKE_YELLOW) -> bool:
     """
-    May this caller manually issue a strike to `member`?
+    May this caller manually give `member` a strike of this `color`?
 
-    Secretary/admin may strike anyone. A domain head may only strike members
-    of their own vertical — the same scoping `can_assign` uses for task
-    authorization, kept consistent here rather than inventing a separate rule.
-    Nobody else (including a plain event coordinator) may issue one; unlike
-    task assignment, a strike is a reliability judgment about a person, not an
-    action tied to one request.
+    Secretary/admin may give either color to anyone. A domain head may give only
+    a *yellow* strike, and only to a member of their own vertical — primary or
+    secondary. Red is reserved to secretary/admin. Nobody else (including a plain
+    event coordinator) may issue one; a strike is a reliability judgment about a
+    person, not an action tied to one request.
     """
     if roles.is_staff_side:
         return True
-    if roles.is_domain_head and roles.domain_head_of and member.vertical == roles.domain_head_of:
-        return True
-    return False
+    if color != STRIKE_YELLOW:
+        return False
+    return bool(roles.is_domain_head and roles.domain_head_of and member.in_vertical(roles.domain_head_of))

@@ -7,7 +7,7 @@ clawing back points from the old holder if any had already been credited
 (points are earned on completion, not assignment — see
 engine/workflow.py's `_award_completion_points`; the new holder earns their
 own on completion of the reassigned task, never a hand-me-down), coordinator
-propagation, notifications both ways, and an audit entry.
+and supervisor propagation, notifications both ways, and an audit entry.
 """
 
 from __future__ import annotations
@@ -15,10 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.db import transaction
+from django.utils import timezone
 
 from core.activity import log_activity
 from core.config import get_points_scheme
-from core.constants import ROSTER_ROLES, RequestStatus, TaskStatus
+from core.constants import ROSTER_ROLES, TASK_SUPERVISOR, RequestStatus, TaskStatus
 from core.models import TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
@@ -34,14 +35,25 @@ def override_proposed_assignee(task, member) -> None:
     fields themselves -- unlike `perform_swap`, this runs *before* approval,
     so there's nothing to notify, claw back, or propagate yet (confirm_request
     does all of that once the request is actually approved). Used by the
-    POC/Secretary's Graphic Designer override at approval time
+    POC/Secretary's Task Supervisor pick at approval time
     (ui/views.py's approval_decide).
     """
     task.member = member.name
     task.email = member.email
     task.phone = member.phone or ""
     task.reason = ""
-    task.save(update_fields=["member", "email", "phone", "reason"])
+    fields = ["member", "email", "phone", "reason"]
+    if task.status == TaskStatus.UNFILLED:
+        # Filling an UNFILLED task must make it a real proposal, or
+        # confirm_request skips it and the pick never takes effect.
+        task.status = TaskStatus.PROPOSED
+        fields.append("status")
+    task.save(update_fields=fields)
+
+    if task.task == TASK_SUPERVISOR:
+        request_obj = task.request
+        request_obj.supervisor_email = member.email
+        request_obj.save(update_fields=["supervisor_email"])
 
 
 @dataclass(frozen=True)
@@ -59,26 +71,34 @@ def validate_member(
     settings,
     *,
     require_skill: bool = True,
+    task_name: str = "",
 ) -> Validation:
     """
     Check one hand-picked member against the same rules auto-assignment uses.
 
     `require_skill=False` is for a deliberate manual reassignment across
-    verticals — active/strikes/campus/calendar checks still apply, only the
-    skill match is dropped.
+    verticals — active/campus/year/calendar checks still apply, only the skill
+    match is dropped. `task_name` selects the year rule: second-years only for
+    the Task Supervisor, first-years for everything else.
     """
     address = (email or "").strip().lower()
     member = TeamMember.objects.filter(email=address).first()
     if member is None:
         return Validation(ok=False, reason=f"{address} is not on the team")
 
-    if not is_base_eligible(member, required_skill, request_obj, settings, require_skill=require_skill):
-        skill_clause = f', lacking "{required_skill}"' if require_skill else ""
+    if not is_base_eligible(
+        member, required_skill, request_obj, settings, require_skill=require_skill, task_name=task_name
+    ):
+        if task_name == TASK_SUPERVISOR:
+            year_clause = "not a second-year (only second-years supervise)"
+        else:
+            year_clause = "a second-year (second-years only supervise)"
+        skill_clause = f', lacking "{required_skill}"' if require_skill and required_skill else ""
         return Validation(
             ok=False,
             reason=(
-                f"{member.name} is not eligible — inactive, out of work, at the strike "
-                f"limit{skill_clause}, or on a different campus"
+                f"{member.name} is not eligible — inactive, out of work, {year_clause}"
+                f"{skill_clause}, or on a different campus"
             ),
         )
 
@@ -146,7 +166,24 @@ def _commit_swap(task, new_member, request_obj, old_email: str) -> None:
     task.member = new_member.name
     task.email = new_member.email
     task.phone = new_member.phone or ""
-    task.status = TaskStatus.CONFIRMED if confirmed_state else TaskStatus.PROPOSED
+    # Supervising closes itself when the Event Coordinator finishes — it has no
+    # "Mark done" for a new supervisor to press, so correcting who held it after
+    # the fact must leave it closed, not reopen it forever.
+    # That includes a supervisor filled *after* the coordinator already finished:
+    # nothing would ever close it, and it would count as load forever.
+    coordinator_done = (
+        task.task == TASK_SUPERVISOR
+        and Task.objects.filter(
+            request=request_obj, task=TASK_EVENT_COORDINATOR, status=TaskStatus.DONE
+        ).exists()
+    )
+    stays_done = task.task == TASK_SUPERVISOR and (task.status == TaskStatus.DONE or coordinator_done)
+    if stays_done:
+        if task.status != TaskStatus.DONE:
+            task.status = TaskStatus.DONE
+            task.completed_at = timezone.now()
+    else:
+        task.status = TaskStatus.CONFIRMED if confirmed_state else TaskStatus.PROPOSED
     # Points are earned by whoever actually completes the task, not by being
     # handed it — the new holder starts fresh and earns their own on
     # completion (engine/workflow.py's `_award_completion_points`).
@@ -172,6 +209,7 @@ def _commit_swap(task, new_member, request_obj, old_email: str) -> None:
             "timing_applied",
             "points",
             "struck",
+            "completed_at",
         ]
     )
 
@@ -188,3 +226,9 @@ def _commit_swap(task, new_member, request_obj, old_email: str) -> None:
         Task.objects.filter(request=request_obj).exclude(pk=task.pk).update(
             coordinator_email=new_member.email
         )
+
+    # The supervisor is looked up by email on the request (permission checks,
+    # the [Late] recipients), so it has to follow the task.
+    if task.task == TASK_SUPERVISOR:
+        request_obj.supervisor_email = new_member.email
+        request_obj.save(update_fields=["supervisor_email"])

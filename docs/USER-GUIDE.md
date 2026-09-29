@@ -18,9 +18,8 @@ first time; it won't ask again on that device.
 
 You can always:
 - Raise a **Post** request (`New Request` → Post) — a request to have
-  something published to the institute's social channels. No approval
-  needed unless the Secretary/POC has turned on mandatory approval for
-  everyone.
+  something published to the institute's social channels. **Every Post is
+  reviewed by the Secretary/POC before any team is confirmed.**
 - See the status of requests you've raised (`My Requests`).
 - If you're on the media team roster, see and complete tasks assigned to
   you (`My Tasks`) — see the **Team member** section below.
@@ -37,9 +36,20 @@ Everything above, plus:
 - **If your event starts within 48 hours of when you submit**, the request
   is held for Secretary/POC approval instead of auto-proceeding — a
   short-notice sanity check, not a rejection. You'll be notified either way.
+- **Add sub-events** — a schedule inside your event (e.g. "Inauguration,
+  10:00, Auditorium"; "Panel, 11:00, Room 5"). Fill them in on the new-request
+  form, or add, edit and delete them later from the request page. They may
+  fall outside the main event's times. The team covers all of them — they
+  are information for the team, not extra requests.
 - **Edit the venue after submitting**, if it changes at the last minute —
   open the request from `My Requests` → **Edit venue**. You don't need to
   contact anyone to fix a last-minute room change.
+- **Change the event's time after submitting** (start and end **time** — the
+  **date can't be changed**) from the request page → **Change time**. The
+  team, the Task Supervisor and the POC are emailed, and anyone the new time
+  clashes with is flagged to the POC. Both this and sub-event changes are
+  possible **only until 24 hours before the event starts**; after that, ask
+  the POC.
 - Every request gets a reference code (e.g. `SAPIENT_7`) — use it when
   following up so people don't have to search by event name.
 
@@ -61,20 +71,27 @@ Everything in "Everyone," plus:
   head or the Secretary/POC so they can mark you "Out of work" — you'll be
   skipped for new auto-assignments until it's turned back off. This doesn't
   affect points or strikes, only future assignments.
-- **Strikes**: you get one automatically if a task you're the coordinator on
-  goes overdue. You can also be struck manually by a domain head (your own
-  vertical only) or the Secretary/POC (anyone) for a reliability issue that
-  isn't caught by the deadline system. Too many strikes makes you ineligible
-  for new auto-assignments until it's addressed — talk to your vertical head
-  or the Secretary/POC if you think a strike was wrong; only they (or Admin)
-  can remove one.
+- **Two verticals**: each member has a **primary** and an optional
+  **secondary** vertical. Automatic assignment tries people whose primary
+  vertical matches the work first, then those with it as their secondary, then
+  anyone else with the skill. Admin/POC can change your verticals.
+- **Strikes** come in two colours and are **only ever given by hand** — nothing
+  is issued automatically any more (a late task is still marked LATE and the
+  right people are emailed, but no strike is added). A **yellow** strike is a
+  warning and can be given by your domain head (if you're in their vertical,
+  primary or secondary) or the Secretary/POC/Admin; a **red** strike is
+  serious and only the Secretary/POC/Admin can give one. Strikes never stop you
+  being assigned work. Talk to your vertical head or the Secretary/POC if you
+  think one was wrong; only the Secretary/POC or Admin can remove one.
 
 ### If you're coordinating a request (you raised or were assigned to run one)
 
 - **`Assignments`** shows the tasks on requests you coordinate. You can
   **reassign** any of them — auto-pick a replacement or choose manually —
   and **add** an extra task type that wasn't in the original plan (e.g.
-  bringing in a Video Editor after the fact).
+  bringing in a Video Editor after the fact). The one exception is the
+  **Task Supervisor** on your request: you can't change it — only the
+  Secretary/POC or Admin can.
 - Once every deliverable is in, mark the request **Ready to post** — the
   system schedules the actual posts for you.
 
@@ -86,11 +103,30 @@ specifically (not other verticals). You were appointed this by the
 Secretary/POC or Admin (`Portal Admin → Vertical heads`); if you think you
 should have this and don't, ask them.
 
-### If you're a second-year member
+### If you're a second-year member — the Task Supervisor
 
-Second-years can assign/reassign on **any** request, in any vertical — not
-scoped to a single vertical the way a domain head is. This is a standing
-trust level, not something you request per-task.
+Second-years **only supervise**. You are never assigned photography, editing,
+writing, design or event-coordinator work — those go to first-years — and you
+can't be hand-picked for them either.
+
+Each **Coverage** request gets one **Task Supervisor**, a second-year, picked
+automatically (whoever is currently supervising the fewest events) when the
+request is submitted. The POC can change it when approving; the POC or Admin
+can change it later from `Assignments`. **Nobody else can** — not the Event
+Coordinator, and not a domain head. As a supervisor you:
+
+- see the request in `My Tasks` (there is no "Mark done" — it closes by itself
+  when the Event Coordinator marks the event done) and can open its page;
+- are emailed if any task on the request goes overdue;
+- earn no points and have no deadline.
+
+Being a second-year no longer lets you reassign tasks on other requests. (If
+you are also a domain head you keep the head's powers within your vertical.)
+
+Post requests have no supervisor and no vetting step: the Graphic Designs head
+is emailed when a Post is approved and can change the auto-picked Graphic
+Designer from `Assignments`. A Post goes to scheduling once its Graphic
+Designer and Content Writer are both done.
 
 ---
 
@@ -98,21 +134,28 @@ trust level, not something you request per-task.
 
 Everything above, plus:
 
-- **`Approvals`** — decide on gated requests (short-notice Coverage,
-  or anything caught by "require approval always" if that's turned on).
-  Approving confirms the roster and sends notifications; rejecting needs a
-  reason, which gets emailed to the requester.
-- **Strikes, team-wide**: issue or remove a strike for **any** member (not
-  vertical-scoped, unlike a domain head).
+- **`Approvals`** — decide on gated requests: **every Post**, short-notice
+  Coverage, and anything caught by "require approval always" if that's on.
+  On a Coverage request you can also **choose the Task Supervisor** (a
+  second-year; the system suggests one) as you approve. Approving confirms the
+  roster and sends notifications; rejecting needs a reason, which gets emailed
+  to the requester.
+- **Strikes, team-wide**: give a **yellow or red** strike to **any** member, or
+  remove either colour (not vertical-scoped, unlike a domain head, who can give
+  yellow only).
 - **Deactivate ("kick") a team member** (`Portal Admin` → Remove from team)
   — this is a **deactivation, not a delete**: their point/strike/task
   history is kept, and it's reversible. Use this for someone leaving the
   team or a serious reliability problem, not as a substitute for a strike.
 - **Team roster (CSV import)** (`Portal Admin` → Team import) — bulk
-  add/update members: name, email, vertical, year, skills, campus, phone,
-  active. Re-importing updates existing people without resetting anyone's
-  points or strikes, so it's safe to re-run after every roster change (add
-  the new people, don't try to hand-edit the whole file).
+  add/update members: name, email, vertical, secondaryVertical, year, skills,
+  campus, phone, active. Re-importing updates existing people without
+  resetting anyone's points or strikes, so it's safe to re-run after every
+  roster change (add the new people, don't try to hand-edit the whole file).
+- **Verticals** (`Portal Admin` → Team roster) — set each member's primary and
+  secondary vertical. Note the deploy re-applies the verticals in
+  `core/seed_data.py`, so a change that should last also has to be made
+  there.
 - **Committees** (`Portal Admin` → Committees) — add or update a requesting
   body (name, login email, acronym, type, campus) without needing anyone
   to touch code or the database directly.
@@ -135,7 +178,7 @@ Everything above, plus:
 
 - **Point scheme** (`Portal Admin` → Points) — the only role that can
   change the point values themselves (base points per task type, the
-  timing bonus/penalty curve, the strike limit). Changing this affects all
+  timing bonus/penalty curve). Changing this affects all
   *future* completions; it doesn't retroactively re-score past work.
 - **Reset everyone's points to zero** — a full-team reset (e.g. start of a
   new term). This does **not** touch strikes, availability history, or task

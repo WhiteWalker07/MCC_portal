@@ -186,24 +186,79 @@ as an anti-takeover safeguard. Don't rename it to match anyone's real email.
   meaningful (12/12, the direct descendant of the old `server/smoke.ts`).
 - **Roles are resolved per-request**, not stored as a flag:
   `portal/core/roles.py` (`resolve_roles`, `can_assign`, `can_edit_venue`,
-  `can_strike` — vertical-scoped for domain heads).
-- **Lifecycle** (unchanged from the old system): New → (Pending for POC
-  approval, if gated) → Request Accepted → Event Covered → Ready To post →
+  `can_strike`, `can_change_event_time`, `can_edit_subevents`).
+- **Lifecycle**: New → (Pending for POC approval, if gated — every Post,
+  short-notice Coverage) → Request Accepted → Event Covered → Ready To post →
   Posted. (Rejected is terminal.)
+- **Who does what (since 2026-09-29)** — enforced in `engine/assign.py`'s
+  `is_base_eligible`, the single source of truth:
+  - **2nd-years only supervise.** They are eligible for the **Task Supervisor**
+    role and nothing else; every hands-on role, *including Event Coordinator*
+    (no skill needed), goes to 1st-years. A 2nd-year has no blanket reassign
+    power; heads keep theirs.
+  - **Task Supervisor**: one per *Coverage* request (not Post), auto-picked
+    (fewest open supervisions) in `process_new_request`, changeable **only by
+    POC/Admin** (`can_assign(..., task_name=...)`). No points, no deadline,
+    no Mark-done; it closes itself when the Event Coordinator marks done
+    (`workflow._close_supervision`). Receives the `[Late]` emails.
+    `Request.supervisor_email` mirrors `coordinator_email`.
+  - **Post pipeline** = Content Writer + Graphic Designer (no Vetter).
+    Scheduled automatically when both are done. The Graphic Designs head is
+    emailed on approval (`confirm._notify_graphic_heads`) and can change the
+    auto-pick. A Post accepted *before* this change still has its Vetter and
+    finishes the old way.
+  - **Two verticals** per member (`vertical` = primary, `secondary_vertical`).
+    Auto-assignment orders primary → secondary → anyone with the skill
+    (`assign._vertical_tier`); a head's scope is primary *or* secondary.
+    **The seed command re-applies verticals/skills from `core/seed_data.py` on
+    every deploy** — Admin-page edits to verticals last only until then.
+  - **Strikes are yellow/red, manual only** (`yellow_strikes`/`red_strikes`).
+    Heads give yellow only; POC/Admin either. The deadline sweep no longer
+    strikes (tasks still go LATE + emailed) and strikes never affect
+    assignment.
+  - **Clubs can amend a Coverage request until 24h before it starts**: event
+    *time* (never date) and sub-events (`SubEvent`). See
+    `engine/event_changes.py`. Existing calendar holds can't be moved (no event
+    id is stored), so a time change adds new holds and tells people the old
+    entry is stale.
 - **Views/forms/URLs**: `portal/ui/views.py`, `ui/forms.py`, `ui/urls.py`.
   Includes newer additions this round: `request_edit_venue`, `issue_strike`,
   `remove_strike`, `remove_from_team` (deactivate, not hard-delete — explicit
   choice, keeps history).
 - **Models**: `portal/core/models.py` — `PortalSettings`, `PointsScheme`,
   `TaskType`, `PostSlot`, `Platform`, `Committee`, `TeamMember`, `Request`,
-  `Task`, `ActivityLog`.
-- **Cross-vertical manual reassignment**: any member can be manually assigned
-  from any vertical (auto-assignment still skill-matches) —
+  `SubEvent`, `Task`, `ActivityLog`.
+- **Cross-vertical manual reassignment**: any first-year can be manually
+  assigned from any vertical (auto-assignment still skill-matches) —
   `engine/assign.py`'s `eligible_members(require_skill=False)`.
+
+## Deploying the 2026-09-29 workflow update (lab PC)
+Migrations `0002` (schema — **drops `TeamMember.strikes`**, resetting every
+strike to 0 by design) and `0003` (data — blanks Event Coordinator's skill,
+adds the Task Supervisor task type, stops Vetters being added by hand). In order:
+1. `manage.py backup_db` — the strike column can't be recovered afterwards.
+2. `git pull`, `pip install -r requirements.txt`, `manage.py migrate`.
+3. `manage.py seed_real_data` — adds the 14 new first-years and the Graphic
+   Designer / Task Supervisor task types. **Deploy the migration and the seed
+   together**: with only 2nd-years on the MBA campus, MBA Coverage requests
+   cannot be staffed until the first-years exist.
+4. `Restart-Service MCCPortal`.
+This was rehearsed on a copy of the dev database (migrate, then seed twice —
+idempotent). Requests in flight are untouched; older Coverage requests simply
+have no Task Supervisor (POC/Admin can add one from Assignments).
+
+## Testing safely on a machine with live email
+A dev machine whose `.env` has real SMTP credentials *and* a database holding the
+real roster will email real people the moment you run workflow code against it
+(creating or approving a request, changing a time…). Run such scripts and the
+dev server with `$env:EMAIL_HOST=""` (an empty environment value beats `.env`
+and falls back to the console backend), or use the test suite, which never sends.
 
 ## Verification habit
 - After engine/core changes: PowerShell, from `portal/` →
-  `.venv\Scripts\python manage.py test engine` (expect 12/12).
+  `.venv\Scripts\python manage.py test engine` (the ported smoke checks live
+  in `test_smoke.py`; several were deliberately updated for the current
+  workflow, so they no longer match `server/smoke.ts` byte for byte).
 - After any change: `.venv\Scripts\python manage.py test` (expect all green)
   and `.venv\Scripts\python manage.py check`.
 - Both were green as of this handover.

@@ -6,19 +6,24 @@ Ported from `server/src/engine/pipeline.ts`. Pure: it takes the request and the
 task types as arguments and returns plain values, so it can be tested without
 touching the database.
 
-    Coverage -> Event Coordinator + the requested shoot roles, then DERIVE a
-                Photo Editor (if a Photographer was asked for) and a Video
-                Editor (if a Videographer was).
-    Post     -> Vetter + Content Writer (writes the caption) + Graphic
-                Designer (builds the post from the submitted content/proofs
-                -- `content_links`). The Graphic Designer gets auto-picked
-                here like everything else, but it's only a suggestion: the
-                POC/Secretary can override it at approval time
-                (ui/views.py's approval_detail/approval_decide).
+    Coverage -> the requested shoot roles, then DERIVE a Photo Editor (if a
+                Photographer was asked for) and a Video Editor (if a
+                Videographer was), then the Event Coordinator (any first-year),
+                then the Task Supervisor (a second-year).
+    Post     -> Content Writer (writes the caption) + Graphic Designer (builds
+                the post from the submitted content/proofs -- `content_links`).
+                There is no vetting step and no supervisor on a Post; the
+                Graphic Designs head can change the auto-picked Graphic
+                Designer from Assignments.
+
+The Event Coordinator is staffed after the skilled roles on purpose: it needs no
+skill, so if it went first it would use up the fairest first-year before the
+photographer or editor -- who *do* need a specific skill -- got their pick.
 
 Deadlines: Coverage deliverables are measured from the event end plus the task
 type's SLA; at-event roles (sla_hours 0) are due when the event ends. A Post
-request, or a Coverage request with no end time, is measured from now.
+request, or a Coverage request with no end time, is measured from now. The
+Task Supervisor has no deadline at all.
 """
 
 from __future__ import annotations
@@ -28,9 +33,10 @@ from datetime import datetime, timedelta
 
 from core.constants import (
     DERIVED_EDITOR,
+    TASK_CONTENT_WRITER,
     TASK_EVENT_COORDINATOR,
     TASK_GRAPHIC_DESIGNER,
-    TASK_VETTER,
+    TASK_SUPERVISOR,
     RequestType,
 )
 
@@ -55,7 +61,6 @@ def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[Pipel
     names: list[str] = []
 
     if request_obj.type == RequestType.COVERAGE:
-        names.append(TASK_EVENT_COORDINATOR)
         roles = list(request_obj.roles_needed or [])
         for role in roles:
             if role in by_name and role not in names:
@@ -66,9 +71,10 @@ def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[Pipel
             derived = DERIVED_EDITOR.get(role)
             if derived and derived in by_name and derived not in names:
                 names.append(derived)
+        names.append(TASK_EVENT_COORDINATOR)
+        names.append(TASK_SUPERVISOR)
     else:
-        names.append(TASK_VETTER)
-        names.append("Content Writer")
+        names.append(TASK_CONTENT_WRITER)
         names.append(TASK_GRAPHIC_DESIGNER)
 
     pipeline: list[PipelineTask] = []
@@ -93,7 +99,9 @@ def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[Pipel
 
 
 def compute_deadline(task_type, request_obj, now: datetime) -> datetime | None:
-    """When a task of this type, on this request, is due."""
+    """When a task of this type, on this request, is due. `None` = no deadline."""
+    if task_type.task == TASK_SUPERVISOR:
+        return None  # supervising has no due date; it closes with the Event Coordinator
     if request_obj.type == RequestType.COVERAGE and request_obj.event_end:
         end = request_obj.event_end
         if task_type.at_event and task_type.sla_hours == 0:

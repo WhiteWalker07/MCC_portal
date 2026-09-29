@@ -14,8 +14,15 @@ from __future__ import annotations
 from django import forms
 from django.utils import timezone
 
-from core.constants import CAMPUSES, COMMITTEE_TYPES, RequestType, VERTICALS
-from core.models import Committee, PointsScheme, Request
+from core.constants import (
+    CAMPUSES,
+    COMMITTEE_TYPES,
+    STRIKE_CHOICES,
+    STRIKE_YELLOW,
+    VERTICALS,
+    RequestType,
+)
+from core.models import Committee, PointsScheme, Request, SubEvent
 
 
 class DateTimeLocalInput(forms.DateTimeInput):
@@ -154,7 +161,7 @@ class RequestForm(forms.ModelForm):
 class ProfilePhoneForm(forms.Form):
     """
     The one thing a team member may edit about themselves from their own
-    profile — everything else there (points, strikes, skills, vertical,
+    profile — everything else there (points, strikes, skills, verticals,
     availability) is owned by the engine or an admin/domain-head elsewhere.
     """
 
@@ -178,6 +185,45 @@ class VenueEditForm(forms.Form):
         required=False,
         widget=forms.TextInput(attrs={"class": "input"}),
     )
+
+
+class EventTimeForm(forms.Form):
+    """
+    Change a Coverage request's event *time*. Only two time-of-day fields, no
+    dates: the view combines them with the event's existing dates, so a club can
+    move "10:00–12:00" to "14:00–16:00" but has no way to move it to another day.
+    """
+
+    start_time = forms.TimeField(
+        label="Start", widget=forms.TimeInput(attrs={"type": "time", "class": "input"}, format="%H:%M")
+    )
+    end_time = forms.TimeField(
+        label="End", widget=forms.TimeInput(attrs={"type": "time", "class": "input"}, format="%H:%M")
+    )
+
+
+class SubEventForm(forms.ModelForm):
+    """One sub-event: an item in the main event's schedule."""
+
+    class Meta:
+        model = SubEvent
+        fields = ["name", "start", "end", "venue", "notes"]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "input", "placeholder": "e.g. Inauguration"}),
+            "start": DateTimeLocalInput(attrs={"class": "input"}),
+            "end": DateTimeLocalInput(attrs={"class": "input"}),
+            "venue": forms.TextInput(attrs={"class": "input", "placeholder": "Venue (optional)"}),
+            "notes": forms.TextInput(attrs={"class": "input", "placeholder": "Notes for the team (optional)"}),
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        start, end = cleaned.get("start"), cleaned.get("end")
+        # Sub-events may sit outside the main event's window — only their own
+        # start/end have to make sense.
+        if start and end and end <= start:
+            self.add_error("end", "A sub-event must end after it starts.")
+        return cleaned
 
 
 class RejectForm(forms.Form):
@@ -206,7 +252,8 @@ class ReassignForm(forms.Form):
     def __init__(self, *args, eligible=(), **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["member_email"].choices = [("", "Auto-pick best available")] + [
-            (m.email, f"{m.name}" + (f" · {m.vertical}" if m.vertical else "")) for m in eligible
+            (m.email, f"{m.name}" + (f" · {m.vertical_label}" if m.vertical_label else ""))
+            for m in eligible
         ]
 
     @property
@@ -233,7 +280,8 @@ class AddTaskForm(forms.Form):
         kwargs.setdefault("initial", {})["task_type"] = task_type
         super().__init__(*args, **kwargs)
         self.fields["member_email"].choices = [("", "Auto-pick best available")] + [
-            (m.email, f"{m.name}" + (f" · {m.vertical}" if m.vertical else "")) for m in eligible
+            (m.email, f"{m.name}" + (f" · {m.vertical_label}" if m.vertical_label else ""))
+            for m in eligible
         ]
 
     @property
@@ -243,37 +291,48 @@ class AddTaskForm(forms.Form):
 
 class StrikeForm(forms.Form):
     """
-    Manually issue a strike (docs/PRD.md §5.7) — until now the only way a
-    strike was ever added was the automated deadline sweep. `member_email`'s
-    choices are scoped by the view to whoever the caller is actually allowed
-    to strike (`core.roles.can_strike`): secretary/admin see the whole team, a
-    domain head sees only their own vertical.
+    Manually give a strike (docs/PRD.md §5.7). Strikes are only ever given by
+    hand — the deadline sweep no longer adds any. `member_email`'s choices are
+    scoped by the view to whoever the caller is actually allowed to strike
+    (`core.roles.can_strike`): secretary/admin see the whole team, a domain head
+    sees only members of their own vertical (primary or secondary).
+
+    Heads can give only a yellow strike, so `allow_red` is off for them and the
+    colour dropdown simply doesn't offer red; the view re-checks with
+    `can_strike` regardless, since a form field is not an authorisation.
     """
 
     member_email = forms.ChoiceField(label="Member", widget=forms.Select(attrs={"class": "input"}))
+    color = forms.ChoiceField(
+        label="Colour", choices=STRIKE_CHOICES, initial=STRIKE_YELLOW, widget=forms.Select(attrs={"class": "input"})
+    )
     reason = forms.CharField(
         required=False,
         widget=forms.TextInput(attrs={"class": "input", "placeholder": "Reason (recorded in the activity log)"}),
     )
 
-    def __init__(self, *args, strikeable=(), **kwargs):
+    def __init__(self, *args, strikeable=(), allow_red=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["member_email"].choices = [
-            (m.email, f"{m.name}" + (f" · {m.vertical}" if m.vertical else "") + f" ({m.strikes} strike(s))")
+            (m.email, f"{m.name}" + (f" · {m.vertical_label}" if m.vertical_label else "") + f" ({m.strike_label})")
             for m in strikeable
         ]
+        if not allow_red:
+            self.fields["color"].choices = [c for c in STRIKE_CHOICES if c[0] == STRIKE_YELLOW]
 
 
 class RemoveStrikeForm(forms.Form):
     """
-    Waive one strike — secretary/admin only, unlike issuing one (which a
-    domain head may also do within their own vertical; see StrikeForm). The
-    scope is narrower here on purpose: undoing a strike is a bigger call than
-    issuing one, and the request that asked for this was explicit that it's
-    reserved to POC and admin.
+    Waive one strike of a chosen colour — secretary/admin only, unlike giving
+    one (which a domain head may also do, yellow only, within their own
+    vertical; see StrikeForm). The scope is narrower here on purpose: undoing a
+    strike is a bigger call than giving one.
     """
 
     member_email = forms.ChoiceField(label="Member", widget=forms.Select(attrs={"class": "input"}))
+    color = forms.ChoiceField(
+        label="Colour", choices=STRIKE_CHOICES, initial=STRIKE_YELLOW, widget=forms.Select(attrs={"class": "input"})
+    )
     reason = forms.CharField(
         required=False,
         widget=forms.TextInput(attrs={"class": "input", "placeholder": "Reason (recorded in the activity log)"}),
@@ -282,7 +341,7 @@ class RemoveStrikeForm(forms.Form):
     def __init__(self, *args, strikeable=(), **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["member_email"].choices = [
-            (m.email, f"{m.name} ({m.strikes} strike(s))") for m in strikeable
+            (m.email, f"{m.name} ({m.strike_label})") for m in strikeable
         ]
 
 
@@ -304,7 +363,8 @@ class RemoveFromTeamForm(forms.Form):
     def __init__(self, *args, removable=(), **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["member_email"].choices = [
-            (m.email, f"{m.name}" + (f" · {m.vertical}" if m.vertical else "")) for m in removable
+            (m.email, f"{m.name}" + (f" · {m.vertical_label}" if m.vertical_label else ""))
+            for m in removable
         ]
 
 
@@ -333,6 +393,16 @@ class CommitteeForm(forms.ModelForm):
             required=False,
             widget=forms.Select(attrs={"class": "input"}),
         )
+
+    def clean_email(self):
+        return (self.cleaned_data["email"] or "").strip().lower()
+
+    def _get_validation_exclusions(self):
+        # save() upserts on the email, so "this email already exists" must not be
+        # a validation error — it would make the update path unreachable.
+        exclude = super()._get_validation_exclusions()
+        exclude.add("email")
+        return exclude
 
     def save(self, commit=True):
         """
@@ -381,6 +451,32 @@ class MemberPhoneForm(forms.Form):
     )
 
 
+class MemberVerticalsForm(forms.Form):
+    """
+    Secretary/admin editing a member's primary and secondary vertical from the
+    master roster. A separate form and endpoint from the phone editor (rather
+    than one shared row form) because a partial POST would otherwise blank
+    whichever fields it didn't carry.
+
+    Note: the seed command re-applies verticals from core/seed_data.py on every
+    deploy, so a change that should outlive the next deploy belongs in that file
+    too.
+    """
+
+    member_email = forms.EmailField(widget=forms.HiddenInput)
+    vertical = forms.ChoiceField(choices=[("", "—")] + [(v, v) for v in VERTICALS], required=False)
+    secondary_vertical = forms.ChoiceField(choices=[("", "—")] + [(v, v) for v in VERTICALS], required=False)
+
+    def clean(self):
+        cleaned = super().clean()
+        primary, secondary = cleaned.get("vertical"), cleaned.get("secondary_vertical")
+        if secondary and not primary:
+            raise forms.ValidationError("Pick a primary vertical before a secondary one.")
+        if primary and primary == secondary:
+            raise forms.ValidationError("The secondary vertical must differ from the primary.")
+        return cleaned
+
+
 class PointSchemeForm(forms.ModelForm):
     """Admin-only editor for every constant in the scoring scheme."""
 
@@ -400,6 +496,10 @@ class TeamImportForm(forms.Form):
 
     Accepts a pasted CSV or an uploaded file. Re-importing updates existing
     members without resetting their points or strikes.
+
+    Columns: name, email, vertical, secondaryVertical (optional), year, skills,
+    campus, phone, active. A blank secondaryVertical *column* leaves an existing
+    member's secondary vertical alone; only a file that has the column changes it.
     """
 
     csv_file = forms.FileField(required=False, label="CSV file")
@@ -407,7 +507,10 @@ class TeamImportForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={"rows": 8, "spellcheck": "false", "class": "input"}),
         label="…or paste CSV",
-        help_text="Header row required: name,email,vertical,year,skills,campus,phone,active",
+        help_text=(
+            "Header row required: name,email,vertical,secondaryVertical,year,skills,campus,phone,active "
+            "(secondaryVertical, domainHeadOf and active are optional)"
+        ),
     )
 
     def clean(self):

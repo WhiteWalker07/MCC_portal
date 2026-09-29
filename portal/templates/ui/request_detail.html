@@ -26,8 +26,25 @@
     <div><dt>Type</dt><dd>{{ request_obj.type }}</dd></div>
     {% if request_obj.campus %}<div><dt>Campus</dt><dd>{{ request_obj.campus }}</dd></div>{% endif %}
     {% if request_obj.type == "Coverage" %}
-      <div><dt>Start</dt><dd>{{ request_obj.event_start|date:"d M Y, H:i"|default:"—" }}</dd></div>
-      <div><dt>End</dt><dd>{{ request_obj.event_end|date:"d M Y, H:i"|default:"—" }}</dd></div>
+      {% if can_edit_schedule %}
+        <div>
+          <dt>Time</dt>
+          <dd>
+            <p>{{ request_obj.event_start|date:"D d M Y" }}{% if request_obj.event_start|date:"Ymd" != request_obj.event_end|date:"Ymd" %} – {{ request_obj.event_end|date:"D d M Y" }}{% endif %}</p>
+            <form method="post" action="{% url 'request-edit-time' request_obj.pk %}" class="row">
+              {% csrf_token %}
+              {{ time_form.start_time }}
+              <span class="muted">to</span>
+              {{ time_form.end_time }}
+              <button type="submit" class="btn btn--sm">Change time</button>
+            </form>
+            <p class="note">// the date can't be changed, and the time can only be changed until 24 hours before the event — the team is emailed</p>
+          </dd>
+        </div>
+      {% else %}
+        <div><dt>Start</dt><dd>{{ request_obj.event_start|date:"d M Y, H:i"|default:"—" }}</dd></div>
+        <div><dt>End</dt><dd>{{ request_obj.event_end|date:"d M Y, H:i"|default:"—" }}</dd></div>
+      {% endif %}
       <div>
         <dt>Venue</dt>
         <dd>
@@ -44,6 +61,9 @@
         </dd>
       </div>
       <div><dt>Roles</dt><dd>{{ request_obj.roles_needed|join:", "|default:"—" }}</dd></div>
+      {% if request_obj.supervisor_email and portal_roles.email != request_obj.contact_email|lower %}
+        <div><dt>Task Supervisor</dt><dd class="mono">{{ request_obj.supervisor_email }}</dd></div>
+      {% endif %}
     {% endif %}
     <div><dt>Platforms</dt><dd>{{ request_obj.platforms|join:", "|default:"—" }}</dd></div>
     <div><dt>Content links</dt><dd>{{ request_obj.content_links|urlize|default:"—" }}</dd></div>
@@ -51,6 +71,56 @@
     <div><dt>Notes</dt><dd>{{ request_obj.notes|default:"—" }}</dd></div>
     <div><dt>Created</dt><dd>{{ request_obj.created_at|date:"d M Y, H:i" }}</dd></div>
   </dl>
+
+  {% if request_obj.type == "Coverage" and subevent_rows or can_edit_schedule %}
+    <h2 class="h2">Sub-events</h2>
+    {% if subevent_rows %}
+      <div class="stack">
+        {% for row in subevent_rows %}
+          {% if row.form %}
+            <form method="post" action="{% url 'request-subevent-edit' request_obj.pk row.sub.pk %}" class="stack subevent-row">
+              {% csrf_token %}
+              <div class="grid2">
+                <label class="field"><span class="field__label">Name</span>{{ row.form.name }}</label>
+                <label class="field"><span class="field__label">Venue</span>{{ row.form.venue }}</label>
+              </div>
+              <div class="grid2">
+                <label class="field"><span class="field__label">Starts</span>{{ row.form.start }}</label>
+                <label class="field"><span class="field__label">Ends</span>{{ row.form.end }}</label>
+              </div>
+              <label class="field"><span class="field__label">Notes</span>{{ row.form.notes }}</label>
+              <div class="row">
+                <button type="submit" class="btn btn--sm">Save</button>
+                <button type="submit" class="btn btn--danger btn--sm"
+                  formaction="{% url 'request-subevent-delete' request_obj.pk row.sub.pk %}">Delete</button>
+              </div>
+            </form>
+          {% else %}
+            <p><strong>{{ row.sub.name }}</strong> — {{ row.sub.start|date:"d M, H:i" }}–{{ row.sub.end|date:"H:i" }}{% if row.sub.venue %} · {{ row.sub.venue }}{% endif %}{% if row.sub.notes %} <span class="muted">({{ row.sub.notes }})</span>{% endif %}</p>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">No sub-events.</p>
+    {% endif %}
+    {% if subevent_add_form %}
+      <form method="post" action="{% url 'request-subevent-add' request_obj.pk %}" class="stack subevent-row">
+        {% csrf_token %}
+        <div class="field__label">Add a sub-event</div>
+        <div class="grid2">
+          <label class="field"><span class="field__label">Name</span>{{ subevent_add_form.name }}</label>
+          <label class="field"><span class="field__label">Venue</span>{{ subevent_add_form.venue }}</label>
+        </div>
+        <div class="grid2">
+          <label class="field"><span class="field__label">Starts</span>{{ subevent_add_form.start }}</label>
+          <label class="field"><span class="field__label">Ends</span>{{ subevent_add_form.end }}</label>
+        </div>
+        <label class="field"><span class="field__label">Notes</span>{{ subevent_add_form.notes }}</label>
+        <div class="row"><button type="submit" class="btn btn--primary btn--sm">Add sub-event</button></div>
+        <p class="note">// the Event Coordinator and POC are emailed about any change</p>
+      </form>
+    {% endif %}
+  {% endif %}
 
   {% if can_mark_ready %}
     <form method="post" action="{% url 'mark-ready' request_obj.pk %}">

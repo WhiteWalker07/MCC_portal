@@ -24,15 +24,17 @@
 
 {% if strike_form %}
 <section class="card stack">
-  <h2 class="h2">Issue a strike</h2>
-  <p class="muted">Strikes normally come only from the automated deadline sweep. Use this for a
-    deliberate call outside that — the reason is recorded in the activity log.
-    {% if portal_roles.is_domain_head and not portal_roles.is_staff_side %}You can strike members of your own vertical ({{ portal_roles.domain_head_of }}).{% endif %}</p>
+  <h2 class="h2">Give a strike</h2>
+  <p class="muted">Strikes are only ever given by hand — the deadline sweep no longer adds any, and
+    they never stop someone being assigned work. A <strong>yellow</strong> is a warning; a
+    <strong>red</strong> is serious. The reason is recorded in the activity log.
+    {% if portal_roles.is_domain_head and not portal_roles.is_staff_side %}You can give a yellow strike to members of your own vertical ({{ portal_roles.domain_head_of }}, primary or secondary); a red strike can only come from the POC or Admin.{% endif %}</p>
   <form method="post" action="{% url 'issue-strike' %}" class="row">
     {% csrf_token %}
     {{ strike_form.member_email }}
+    {{ strike_form.color }}
     {{ strike_form.reason }}
-    <button type="submit" class="btn btn--danger btn--sm">Issue strike</button>
+    <button type="submit" class="btn btn--danger btn--sm">Give strike</button>
   </form>
 </section>
 {% endif %}

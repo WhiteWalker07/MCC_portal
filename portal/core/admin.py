@@ -26,6 +26,7 @@ from .models import (
     Platform,
     PostSlot,
     Request,
+    SubEvent,
     Task,
     TaskType,
     TeamMember,
@@ -36,7 +37,7 @@ from .models import (
 class PortalSettingsAdmin(admin.ModelAdmin):
     """The single most sensitive record in the system — who has admin/secretary."""
 
-    list_display = ("__str__", "sla_hours", "strike_limit", "campus_strict")
+    list_display = ("__str__", "sla_hours", "campus_strict")
 
     def has_add_permission(self, request):
         return False  # singleton — created lazily by PortalSettings.load()
@@ -83,8 +84,11 @@ class CommitteeAdmin(admin.ModelAdmin):
 
 @admin.register(TeamMember)
 class TeamMemberAdmin(admin.ModelAdmin):
-    list_display = ("name", "email", "vertical", "campus", "year", "active", "points", "strikes", "availability", "domain_head_of")
-    list_filter = ("vertical", "campus", "year", "active", "availability")
+    list_display = (
+        "name", "email", "vertical", "secondary_vertical", "campus", "year", "active",
+        "points", "yellow_strikes", "red_strikes", "availability", "domain_head_of",
+    )
+    list_filter = ("vertical", "secondary_vertical", "campus", "year", "active", "availability")
     search_fields = ("name", "email")
     readonly_fields = ("availability_changed_at", "on_work_days", "out_days")
 
@@ -101,14 +105,22 @@ class TaskInline(admin.TabularInline):
         return False  # tasks are only ever created by the engine
 
 
+class SubEventInline(admin.TabularInline):
+    model = SubEvent
+    extra = 0
+    fields = ("name", "start", "end", "venue", "notes")
+
+
 @admin.register(Request)
 class RequestAdmin(admin.ModelAdmin):
     list_display = ("ref_code", "type", "event_name", "status", "contact_email", "campus", "created_at")
     list_filter = ("type", "status", "campus")
-    search_fields = ("ref_code", "event_name", "contact_email", "coordinator_email")
+    search_fields = ("ref_code", "event_name", "contact_email", "coordinator_email", "supervisor_email")
     date_hierarchy = "created_at"
-    inlines = [TaskInline]
-    readonly_fields = ("ref_code", "campus", "coordinator_email", "roster", "posts", "created_at")
+    inlines = [TaskInline, SubEventInline]
+    readonly_fields = (
+        "ref_code", "campus", "coordinator_email", "supervisor_email", "roster", "posts", "created_at",
+    )
 
 
 @admin.register(Task)

@@ -20,6 +20,17 @@
     {% endif %}
   </dl>
 
+  {% with subs=request_obj.sub_events.all %}
+    {% if subs %}
+      <h2 class="h2">Sub-events</h2>
+      <ul class="plain">
+        {% for s in subs %}
+          <li><strong>{{ s.name }}</strong> — {{ s.start|date:"d M, H:i" }}–{{ s.end|date:"H:i" }}{% if s.venue %} · {{ s.venue }}{% endif %}{% if s.notes %} <span class="muted">({{ s.notes }})</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
   <h2 class="h2">Proposed team</h2>
   {% if tasks %}
     <div style="overflow-x:auto">
@@ -44,12 +55,13 @@
     <form method="post" action="{% url 'approval-decide' request_obj.pk %}" class="stack">
       {% csrf_token %}
       <input type="hidden" name="decision" value="approve" />
-      {% if gd_task %}
+      {% if sup_task %}
         <label>
-          Graphic Designer
-          {{ gd_form.member_email }}
+          Task Supervisor (a 2nd-year)
+          {{ sup_form.member_email }}
           <span class="muted">
-            Suggested: {% if gd_task.email %}{{ gd_task.member }} &lt;{{ gd_task.email }}&gt;{% else %}none — pick one{% endif %}
+            Suggested: {% if sup_task.email %}{{ sup_task.member }} &lt;{{ sup_task.email }}&gt;{% else %}none — pick one{% endif %}.
+            Leave on the first option to keep the suggestion. Only you and Admin can change this later.
           </span>
         </label>
       {% endif %}

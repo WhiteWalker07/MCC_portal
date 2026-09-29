@@ -28,7 +28,23 @@ class PortalRolesMiddleware:
 
     def __call__(self, request):
         request.roles = SimpleLazyObject(lambda: self._resolve(request))
+        if request.path.startswith("/admin/"):
+            self._refresh_staff_flags(request)
         return self.get_response(request)
+
+    @staticmethod
+    def _refresh_staff_flags(request):
+        """
+        Django admin trusts the stored is_staff/is_superuser flags, which are
+        otherwise only synced at sign-in — and the rolling session keeps an active
+        user signed in for weeks. Re-sync them on every admin request so a revoked
+        role stops working immediately, as the rest of the portal already does.
+        """
+        user = getattr(request, "user", None)
+        if user is not None and user.is_authenticated:
+            from accounts.adapters import _sync_staff_flags
+
+            _sync_staff_flags(user)
 
     @staticmethod
     def _resolve(request):

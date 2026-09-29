@@ -5,8 +5,10 @@ Ported verbatim from `server/src/engine/points.ts`. Pure arithmetic — no
 database access — so it can be tested directly and reasoned about in isolation.
 
 Base points by role:
+    Task Supervisor   -> 0 (a duty, not scored work)
     Event Coordinator -> coordinator_points
-    Vetter            -> vetter_points
+    Vetter            -> vetter_points (legacy: only requests already in flight
+                         still have one)
     anything else     -> domain_task_points
 
 A completion-timing modifier is applied when the task is finished, where
@@ -30,10 +32,12 @@ from __future__ import annotations
 
 import math
 
-from core.constants import TASK_EVENT_COORDINATOR, TASK_VETTER
+from core.constants import TASK_EVENT_COORDINATOR, TASK_SUPERVISOR, TASK_VETTER
 
 
 def base_points_for(task_name: str, scheme) -> int:
+    if task_name == TASK_SUPERVISOR:
+        return 0  # supervising is a duty, not scored work
     if task_name == TASK_EVENT_COORDINATOR:
         return scheme.coordinator_points
     if task_name == TASK_VETTER:

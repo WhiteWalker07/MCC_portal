@@ -40,6 +40,7 @@ ROLE_LABELS = {
     "committee": "Committee",
     "team": "Team",
     "coordinator": "Coordinator",
+    "supervisor": "Task Supervisor",
     "domainHead": "Domain Head",
     "secretary": "Secretary",
     "admin": "Admin",

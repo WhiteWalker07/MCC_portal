@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from django.db.models import F
 
+from core.constants import TASK_SUPERVISOR
 from core.models import TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
@@ -20,14 +21,6 @@ def award_points(member_email: str, delta: int) -> None:
         return
     TeamMember.objects.filter(email=member_email.strip().lower()).update(
         points=F("points") + delta
-    )
-
-
-def add_strike(member_email: str, count: int = 1) -> None:
-    if not member_email:
-        return
-    TeamMember.objects.filter(email=member_email.strip().lower()).update(
-        strikes=F("strikes") + count
     )
 
 
@@ -57,7 +50,15 @@ def notify_assignee(task) -> None:
             due=task.deadline,
         )
 
-    body = f"You've been assigned as {task.task} for {task.event_name} ({task.ref_code}).\n"
+    if task.task == TASK_SUPERVISOR:
+        body = (
+            f"You've been assigned as Task Supervisor for {task.event_name} ({task.ref_code}).\n\n"
+            "You oversee this event's team. You'll be copied on any late-task notice for it, "
+            "and this closes on its own once the Event Coordinator marks the event done. "
+            "Only the POC or Admin can change who supervises.\n"
+        )
+    else:
+        body = f"You've been assigned as {task.task} for {task.event_name} ({task.ref_code}).\n"
     if task.deadline:
         body += f"Deadline: {task.deadline:%d %b %Y, %H:%M}\n"
     email_service.send(

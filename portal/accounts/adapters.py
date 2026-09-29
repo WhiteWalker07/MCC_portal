@@ -123,8 +123,11 @@ def _sync_staff_flags(user) -> None:
     desired_staff = roles.is_staff_side
     desired_super = roles.is_admin
 
-    # Never demote a manually-created break-glass superuser.
-    if user.is_superuser and not desired_super:
+    # Never demote a manually-created break-glass superuser — one that has never
+    # signed in through Google. Someone who *has* (so this function granted their
+    # flags) and has since been removed from admin_emails must lose them, or a
+    # revoked admin keeps full /admin/ access forever.
+    if user.is_superuser and not desired_super and not user.socialaccount_set.exists():
         return
 
     if user.is_staff != desired_staff or user.is_superuser != desired_super:

@@ -95,9 +95,31 @@ class Availability:
     CHOICES = [(AVAILABLE, "On work"), (OUT, "Out of work")]
 
 
-#: The four production verticals. A member's vertical scopes what a domain head
-#: may assign; "" means unscoped.
+#: The four production verticals. A member has a primary and an optional
+#: secondary one; a domain head's scope covers members in either. "" = unscoped.
 VERTICALS = ["Photography", "Videography", "Graphic Designs", "Content Writing"]
+
+#: The skills a member gets for working in a vertical. Used to derive the
+#: skills of members seeded from a (primary, secondary) vertical pair.
+VERTICAL_SKILLS = {
+    "Photography": ["Photography", "Photo Editing"],
+    "Videography": ["Videography", "Video Editing"],
+    "Graphic Designs": ["Graphic design"],
+    "Content Writing": ["Content Writing"],
+}
+
+_VERTICAL_ALIASES = {v.lower(): v for v in VERTICALS} | {"graphic design": "Graphic Designs"}
+
+
+def normalise_vertical(text: str) -> str:
+    """
+    Map the spellings people actually type ("Graphic Design", "content writing")
+    onto the canonical vertical names. Anything unrecognised comes back trimmed
+    but otherwise untouched, so a genuinely new vertical isn't silently dropped.
+    """
+    cleaned = (text or "").strip()
+    return _VERTICAL_ALIASES.get(cleaned.lower(), cleaned)
+
 
 CAMPUSES = ["MBA Campus", "BMS Campus"]
 
@@ -109,6 +131,24 @@ TASK_EVENT_COORDINATOR = "Event Coordinator"
 TASK_VETTER = "Vetter"
 TASK_POST = "Post"
 TASK_GRAPHIC_DESIGNER = "Graphic Designer"
+TASK_CONTENT_WRITER = "Content Writer"
+
+#: A 2nd-year who oversees one Coverage request. It is the only role a
+#: 2nd-year is ever given (and only staff may change who holds it); it closes
+#: on its own when the Event Coordinator finishes, earns no points and has no
+#: deadline.
+TASK_SUPERVISOR = "Task Supervisor"
+
+#: Strikes come in two colours, both given by hand. A yellow is a warning that a
+#: vertical head, the POC or an admin can give; a red is serious and reserved to
+#: the POC/admin. Neither blocks assignment or affects the engine in any way.
+STRIKE_YELLOW = "yellow"
+STRIKE_RED = "red"
+STRIKE_CHOICES = [(STRIKE_YELLOW, "Yellow (warning)"), (STRIKE_RED, "Red (serious)")]
+
+#: A club may change an event's time, or its sub-events, only while the event
+#: is still more than this many hours away.
+EDIT_CUTOFF_HOURS = 24
 
 #: Coverage requests derive an editor task from each shoot role that was
 #: requested (docs/PRD.md §5.2).
