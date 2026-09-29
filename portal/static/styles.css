@@ -244,6 +244,18 @@ h1 {
   padding: var(--space-5);
 }
 
+/* One sub-event (an editable row on a request, or a blank row on the new-request form). */
+.subevent-row {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-soft);
+}
+
+ul.plain {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
 .stack > * + * {
   margin-top: var(--space-4);
 }

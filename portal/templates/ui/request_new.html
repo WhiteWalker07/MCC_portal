@@ -60,6 +60,30 @@
         </div>
         {% for error in form.roles_needed.errors %}<p class="error">{{ error }}</p>{% endfor %}
       </fieldset>
+
+      <fieldset class="field">
+        <legend class="field__label">Sub-events <span class="muted">(optional schedule inside the event — leave unused rows blank)</span></legend>
+        <p class="muted">Add anything the team should know is happening within the event, e.g.
+          "Inauguration, 10:00, Auditorium". They may fall outside the main event's times. You can
+          add, edit or remove them later until 24 hours before the event.</p>
+        {{ subevents.management_form }}
+        {% for sub in subevents %}
+          <div class="stack subevent-row">
+            <div class="grid2">
+              <label class="field"><span class="field__label">Name</span>{{ sub.name }}</label>
+              <label class="field"><span class="field__label">Venue</span>{{ sub.venue }}</label>
+            </div>
+            <div class="grid2">
+              <label class="field"><span class="field__label">Starts</span>{{ sub.start }}</label>
+              <label class="field"><span class="field__label">Ends</span>{{ sub.end }}</label>
+            </div>
+            <label class="field"><span class="field__label">Notes</span>{{ sub.notes }}</label>
+            {% for field in sub %}{% for error in field.errors %}<p class="error">{{ error }}</p>{% endfor %}{% endfor %}
+            {% for error in sub.non_field_errors %}<p class="error">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+        {% for error in subevents.non_form_errors %}<p class="error">{{ error }}</p>{% endfor %}
+      </fieldset>
     </div>
 
     <fieldset class="field">

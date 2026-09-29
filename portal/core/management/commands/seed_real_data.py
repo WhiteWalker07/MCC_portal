@@ -4,7 +4,9 @@ Load the real committees, media-team roster and engine configuration.
 Replaces `npm run load-data` (server/scripts/load-real-data.mjs). Safe to re-run
 at any time — that is the whole point. Engine-owned fields are only ever set on
 insert, so re-seeding after a roster edit never resets anyone's points, strikes,
-availability history or reference-code counters.
+availability history or reference-code counters. (Each member's verticals,
+campus, year and skills are the exception: the seed file wins, and is
+re-applied on every run.)
 
     python manage.py seed_real_data
     python manage.py seed_real_data --reset-config   # also restore tuned config
@@ -95,27 +97,36 @@ class Command(BaseCommand):
     def _load_team(self) -> dict:
         created = updated = 0
         now = timezone.now()
-        for email, name, vertical, campus, year, skills in seed_data.TEAM:
+        for member in seed_data.TEAM:
+            # The seed file wins for these: every run re-applies each member's
+            # verticals, campus, year and skills from core/seed_data.py, so a
+            # roster change is made there (Admin-page edits to verticals last
+            # only until the next deploy).
             shared = {
-                "name": name,
-                "vertical": vertical,
-                "campus": campus,
-                "year": year,
-                "skills": seed_data.team_skills(year, skills),
-                "active": True,
+                "name": member["name"],
+                "vertical": member["vertical"],
+                "secondary_vertical": member["secondary_vertical"],
+                "campus": member["campus"],
+                "year": member["year"],
+                "skills": member["skills"],
             }
             _, was_created = TeamMember.objects.update_or_create(
-                email=email.lower(),
+                email=member["email"].lower(),
                 defaults=shared,
-                # Scores, strikes, headship and availability history belong to
-                # the engine and to decisions made in the portal — a re-seed
-                # must never wipe them.
+                # Scores, strikes, headship, active status, availability
+                # history and the contact number belong to the engine and to
+                # decisions made in the portal — a re-seed must never wipe
+                # them. The number is only ever seeded on a brand-new row, since
+                # members and the POC edit it in the portal. "active" likewise
+                # only gets its seeded default on a new row.
                 create_defaults={
                     **shared,
-                    "phone": "",
+                    "phone": member["phone"],
                     "points": 0,
-                    "strikes": 0,
+                    "yellow_strikes": 0,
+                    "red_strikes": 0,
                     "domain_head_of": "",
+                    "active": True,
                     "availability": "available",
                     "availability_changed_at": now,
                     "on_work_days": 0.0,
@@ -172,10 +183,13 @@ class Command(BaseCommand):
                 )
 
     def _load_points(self, reset: bool) -> None:
+        # Must be checked *before* load(), which creates the row if it's missing —
+        # afterwards the row always exists and a fresh DB never got the seed values.
+        existed = PointsScheme.objects.filter(pk=1).exists()
         scheme = PointsScheme.load()
         # Only stamp the defaults onto a scheme nobody has tuned yet, unless the
         # caller explicitly asked to restore them.
-        if reset or not PointsScheme.objects.filter(pk=1).exists():
+        if reset or not existed:
             for field, value in seed_data.POINTS_SCHEME.items():
                 setattr(scheme, field, value)
             scheme.save()

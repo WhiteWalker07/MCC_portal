@@ -40,7 +40,7 @@
     </table>
   </div>
 
-  {% if request_obj.status == "Event Covered" %}
+  {% if request_obj.status == "Event Covered" and can_mark_ready %}
     <form method="post" action="{% url 'mark-ready' request_obj.pk %}">
       {% csrf_token %}
       <button type="submit" class="btn btn--primary">Mark ready to post</button>

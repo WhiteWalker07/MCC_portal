@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 from django.utils import timezone
 
-from core.constants import TaskStatus
+from core.constants import TASK_SUPERVISOR, TaskStatus
 from core.models import Request, Task, TeamMember
 
 HOUR = 3600
@@ -52,7 +52,8 @@ def compute_stats(filters: dict) -> dict:
             return False
         if year != "all" and str(member.year or "") != year:
             return False
-        if vertical != "all" and (member.vertical or "") != vertical:
+        # A member counts under either of their two verticals.
+        if vertical != "all" and not member.in_vertical(vertical):
             return False
         return True
 
@@ -64,7 +65,9 @@ def compute_stats(filters: dict) -> dict:
     turnaround_sum = 0.0
     turnaround_n = 0
 
-    for task in Task.objects.all():
+    for task in Task.objects.exclude(task=TASK_SUPERVISOR):
+        # Supervising closes itself with no deadline, so counting it would make
+        # every supervisor look perfectly on time and inflate "tasks completed".
         email = (task.email or "").lower()
         if member_filtered and not member_matches(member_by_email.get(email)):
             continue
@@ -99,10 +102,11 @@ def compute_stats(filters: dict) -> dict:
             {
                 "name": m.name or m.email,
                 "email": m.email,
-                "vertical": m.vertical or "",
+                "vertical": m.vertical_label,
                 "campus": m.campus or "",
                 "points": m.points or 0,
-                "strikes": m.strikes or 0,
+                "yellow_strikes": m.yellow_strikes or 0,
+                "red_strikes": m.red_strikes or 0,
                 "active": m.active,
                 "done": done_by_email.get(m.email.lower(), 0),
                 "on_time_pct": (
@@ -116,6 +120,8 @@ def compute_stats(filters: dict) -> dict:
         key=lambda row: (-row["points"], -row["done"]),
     )
 
+    # Aggregated by *primary* vertical only: counting a member under both would
+    # double their points in the totals.
     by_vertical_map: dict[str, dict] = {}
     for m in filtered_members:
         v = m.vertical or "—"

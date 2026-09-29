@@ -72,9 +72,12 @@ class Command(BaseCommand):
 
     @staticmethod
     def _snapshot(source: Path, destination: Path) -> None:
-        with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as src, sqlite3.connect(
-            destination
-        ) as dst:
+        # Path.as_uri() percent-encodes spaces and normalises to forward
+        # slashes — building the URI with an f-string instead breaks on any
+        # path containing a space or a backslash (Windows paths routinely
+        # have both).
+        uri = source.resolve().as_uri() + "?mode=ro"
+        with sqlite3.connect(uri, uri=True) as src, sqlite3.connect(destination) as dst:
             src.backup(dst)
 
     @staticmethod

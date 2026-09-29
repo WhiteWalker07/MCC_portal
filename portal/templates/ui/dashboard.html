@@ -54,7 +54,7 @@
   {% if stats.leaderboard %}
     <div style="overflow-x:auto">
       <table class="roster">
-        <thead><tr><th>Member</th><th>Vertical</th><th>Campus</th><th>Points</th><th>Strikes</th><th>Done</th><th>On-time</th></tr></thead>
+        <thead><tr><th>Member</th><th>Vertical</th><th>Campus</th><th>Points</th><th>Yellow</th><th>Red</th><th>Done</th><th>On-time</th></tr></thead>
         <tbody>
           {% for row in stats.leaderboard %}
             <tr{% if not row.active %} style="opacity:.55"{% endif %}>
@@ -62,7 +62,8 @@
               <td>{{ row.vertical|default:"—" }}</td>
               <td>{{ row.campus|default:"—" }}</td>
               <td>{{ row.points }}</td>
-              <td>{{ row.strikes }}</td>
+              <td>{{ row.yellow_strikes }}</td>
+              <td>{{ row.red_strikes }}</td>
               <td>{{ row.done }}</td>
               <td>{% if row.on_time_pct is not None %}{{ row.on_time_pct }}%{% else %}—{% endif %}</td>
             </tr>

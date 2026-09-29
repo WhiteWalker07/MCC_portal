@@ -32,8 +32,11 @@ from core.constants import (
     HOUR,
     RequestStatus,
     RequestType,
+    TASK_CONTENT_WRITER,
     TASK_EVENT_COORDINATOR,
+    TASK_GRAPHIC_DESIGNER,
     TASK_POST,
+    TASK_SUPERVISOR,
     TASK_VETTER,
     TaskStatus,
 )
@@ -41,9 +44,9 @@ from core.models import Task, TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
 
-from .assign import choose_member
+from .assign import choose_member, choose_supervisor
 from .confirm import confirm_request
-from .notify import add_strike, award_points
+from .notify import award_points
 from .pipeline import build_pipeline
 from .points import final_points
 from .posting import find_next_slot
@@ -53,6 +56,29 @@ logger = logging.getLogger(__name__)
 
 
 # ── onRequestCreated ─────────────────────────────────────────────────────────
+
+
+def open_supervision_counts() -> dict[str, int]:
+    """
+    How many unfinished supervisions each second-year currently holds, keyed by
+    lower-cased email — what `choose_supervisor` balances on.
+
+    Requests that are already Posted or Rejected are ignored: a rejected
+    request keeps its PROPOSED supervisor task forever, and counting it would
+    quietly make someone look busier than they are.
+    """
+    open_tasks = (
+        Task.objects.filter(task=TASK_SUPERVISOR)
+        .exclude(status__in=[TaskStatus.DONE, TaskStatus.UNFILLED])
+        .exclude(request__status__in=RequestStatus.TERMINAL)
+        .values_list("email", flat=True)
+    )
+    counts: dict[str, int] = {}
+    for address in open_tasks:
+        key = (address or "").lower()
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 def process_new_request(request_obj) -> None:
@@ -80,16 +106,24 @@ def process_new_request(request_obj) -> None:
 
     already_assigned: set[str] = set()
     coordinator_email = ""
+    supervisor_email = ""
     tasks_to_create: list[Task] = []
     outcomes: list[tuple[str, TeamMember | None, str]] = []
+    open_counts = open_supervision_counts()
 
     for pipeline_task in pipeline:
-        choice = choose_member(
-            pipeline_task, request_obj, settings, team, already_assigned, calendar
-        )
+        if pipeline_task.task == TASK_SUPERVISOR:
+            choice = choose_supervisor(request_obj, settings, team, open_counts)
+        else:
+            choice = choose_member(
+                pipeline_task, request_obj, settings, team, already_assigned, calendar
+            )
         member = choice.member
         if member is not None:
-            already_assigned.add(member.email)
+            if pipeline_task.task == TASK_SUPERVISOR:
+                supervisor_email = member.email
+            else:
+                already_assigned.add(member.email)
             if pipeline_task.task == TASK_EVENT_COORDINATOR:
                 coordinator_email = member.email
 
@@ -126,7 +160,8 @@ def process_new_request(request_obj) -> None:
         if tasks_to_create:
             Task.objects.bulk_create(tasks_to_create)
         request_obj.coordinator_email = coordinator_email
-        request_obj.save(update_fields=["coordinator_email"])
+        request_obj.supervisor_email = supervisor_email
+        request_obj.save(update_fields=["coordinator_email", "supervisor_email"])
 
     log_activity(
         "created",
@@ -169,9 +204,8 @@ def _requires_approval(request_obj, settings) -> bool:
     """
     Short-notice Coverage requests get a human sanity check (docs/PRD.md §5.1).
 
-    Post requests always get one now: the POC/Secretary does a background
-    check on the submitted content and picks (or confirms) the Graphic
-    Designer at that same moment (ui/views.py's approval_detail).
+    Post requests always get one: the POC/Secretary does a background check on
+    the submitted content before any team is confirmed.
     """
     if settings.require_approval_always:
         return True
@@ -193,8 +227,17 @@ def _approval_email(request_obj, ref_code: str, outcomes) -> str:
         if request_obj.type == RequestType.COVERAGE
         else "Post requests always need a review before the team is confirmed"
     )
+    schedule = ""
+    sub_events = list(request_obj.sub_events.all()) if request_obj.pk else []
+    if sub_events:
+        schedule = "Sub-events:\n" + "\n".join(
+            f"  {s.name}: {timezone.localtime(s.start):%d %b, %H:%M}–{timezone.localtime(s.end):%H:%M}"
+            + (f" · {s.venue}" if s.venue else "")
+            for s in sub_events
+        ) + "\n\n"
     return (
         f"Approval needed for {ref_code} — {request_obj.event_name} ({reason}).\n\n"
+        f"{schedule}"
         f"Proposed team:\n" + "\n".join(lines) + "\n\n"
         "Open the Approvals view to approve or reject.\n"
     )
@@ -203,12 +246,27 @@ def _approval_email(request_obj, ref_code: str, outcomes) -> str:
 # ── onRequestDecided (reject branch) ─────────────────────────────────────────
 
 
-def reject_request(request_obj, reason: str, by: str) -> None:
-    request_obj.status = RequestStatus.REJECTED
-    request_obj.decision_by = by
-    request_obj.reject_reason = reason or ""
-    request_obj.decision_at = timezone.now()
-    request_obj.save(update_fields=["status", "decision_by", "reject_reason", "decision_at"])
+def reject_request(request_obj, reason: str, by: str) -> bool:
+    """
+    Reject a request. Returns False, having changed nothing, if someone else got
+    there first: an approval racing this rejection may already have accepted it
+    (tasks confirmed, people told), and a second rejection must not email the
+    club twice.
+    """
+    with transaction.atomic():
+        locked_status = (
+            type(request_obj)
+            .objects.select_for_update()
+            .values_list("status", flat=True)
+            .get(pk=request_obj.pk)
+        )
+        if locked_status == RequestStatus.REJECTED or locked_status in RequestStatus.CONFIRMED_STATES:
+            return False
+        request_obj.status = RequestStatus.REJECTED
+        request_obj.decision_by = by
+        request_obj.reject_reason = reason or ""
+        request_obj.decision_at = timezone.now()
+        request_obj.save(update_fields=["status", "decision_by", "reject_reason", "decision_at"])
 
     body = f"Your request {request_obj.ref_code} ({request_obj.event_name}) was not approved."
     if reason:
@@ -224,6 +282,7 @@ def reject_request(request_obj, reason: str, by: str) -> None:
         actor=by or "secretary",
         detail=reason or "Rejected by POC",
     )
+    return True
 
 
 # ── onTaskCompleted ──────────────────────────────────────────────────────────
@@ -258,6 +317,8 @@ def complete_task(task) -> None:
     # pipeline (that still only happens from 'Request Accepted', below).
     if task.task == TASK_EVENT_COORDINATOR and task.req_type == RequestType.COVERAGE:
         _notify_club_coverage_shared(task, request_obj)
+        # The Task Supervisor has no "Mark done" of its own: it closes here.
+        _close_supervision(request_obj)
 
     # Only ever advance from 'Request Accepted' — a request that's already
     # covered, ready or posted has moved past this point.
@@ -267,12 +328,18 @@ def complete_task(task) -> None:
     tasks = list(request_obj.tasks.all())
 
     if task.req_type == RequestType.COVERAGE:
+        # Neither the coordinator nor the supervisor is a deliverable.
         deliverables = [
-            t for t in tasks if t.task != TASK_EVENT_COORDINATOR and t.status != TaskStatus.UNFILLED
+            t
+            for t in tasks
+            if t.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)
+            and t.status != TaskStatus.UNFILLED
         ]
         if deliverables and all(t.status == TaskStatus.DONE for t in deliverables):
-            request_obj.status = RequestStatus.EVENT_COVERED
-            request_obj.save(update_fields=["status"])
+            # Claimed atomically: the last two deliverables finishing at once
+            # would otherwise both advance it (and both log it).
+            if not _advance(request_obj, RequestStatus.ACCEPTED, RequestStatus.EVENT_COVERED):
+                return
             log_activity(
                 "event-covered",
                 request_obj=request_obj,
@@ -282,19 +349,72 @@ def complete_task(task) -> None:
             )
         return
 
-    # A Post request needs only its Vetter; finishing that sends it to scheduling.
+    # A Post is ready once its makers are done.
+    #
+    # A request accepted before the Vetter was dropped still has one, and keeps
+    # the old rule (its Vetter finishing sends it to scheduling) so nothing in
+    # flight gets stuck. Every newer Post has no vetting step: it goes to
+    # scheduling automatically once every staffed Graphic Designer and Content
+    # Writer task is done.
     vetter = next((t for t in tasks if t.task == TASK_VETTER), None)
-    if vetter is not None and vetter.status == TaskStatus.DONE:
-        request_obj.status = RequestStatus.READY_TO_POST
-        request_obj.save(update_fields=["status"])
+    if vetter is not None:
+        ready = vetter.status == TaskStatus.DONE
+        detail = "Vetting done; ready to post"
+    else:
+        # An UNFILLED maker still blocks: the graphic heads are told to fill it,
+        # and posting without it would schedule a post that has no graphic (or
+        # caption) while the late-filled role could no longer change anything.
+        makers = [t for t in tasks if t.task in (TASK_CONTENT_WRITER, TASK_GRAPHIC_DESIGNER)]
+        ready = bool(makers) and all(t.status == TaskStatus.DONE for t in makers)
+        detail = "Graphic Designer and Content Writer done; ready to post"
+
+    if ready:
+        # Claimed atomically: the last two makers finishing at once would
+        # otherwise both run schedule_posts, whose own exists() guard is an
+        # unlocked read — duplicate Post tasks and handler points credited twice.
+        if not _advance(request_obj, RequestStatus.ACCEPTED, RequestStatus.READY_TO_POST):
+            return
         log_activity(
             "ready",
             request_obj=request_obj,
             ref_code=task.ref_code,
             actor="engine",
-            detail="Vetting done; ready to post",
+            detail=detail,
         )
         schedule_posts(request_obj)
+
+
+def _advance(request_obj, from_status: str, to_status: str) -> bool:
+    """Move the request from one status to the next, only if it's still in the first."""
+    moved = type(request_obj).objects.filter(pk=request_obj.pk, status=from_status).update(
+        status=to_status
+    )
+    if moved:
+        request_obj.status = to_status
+    return bool(moved)
+
+
+def _close_supervision(request_obj) -> None:
+    """
+    Mark the request's Task Supervisor task DONE, no points. It rides on the
+    Event Coordinator's completion because supervising has no deliverable of
+    its own to hand in.
+    """
+    now = timezone.now()
+    for supervision in request_obj.tasks.filter(task=TASK_SUPERVISOR).exclude(
+        status__in=[TaskStatus.DONE, TaskStatus.UNFILLED]
+    ):
+        supervision.status = TaskStatus.DONE
+        supervision.completed_at = now
+        supervision.save(update_fields=["status", "completed_at"])
+        log_activity(
+            "supervision-closed",
+            request_obj=request_obj,
+            ref_code=supervision.ref_code,
+            member=supervision.email,
+            actor="engine",
+            detail="Task Supervisor closed: the Event Coordinator marked the event done",
+        )
 
 
 def _notify_club_coverage_shared(task, request_obj) -> None:
@@ -308,6 +428,7 @@ def _notify_club_coverage_shared(task, request_obj) -> None:
         f"[Covered] {task.ref_code} — {request_obj.event_name}",
         f"Coverage for {request_obj.event_name} ({task.ref_code}) is complete.\n\n"
         f"Find the material here:\n{request_obj.content_links or '(no link provided)'}",
+        in_reply_to=email_service.thread_id_for(task.ref_code),
     )
     log_activity(
         "coverage-shared",
@@ -330,7 +451,7 @@ def _award_completion_points(task, request_obj) -> None:
     it coordinates others rather than producing one — so it gets its flat
     base points with no early/late modifier.
     """
-    if task.points_awarded or not task.email:
+    if task.points_awarded or not task.email or task.task == TASK_SUPERVISOR:
         return
 
     base = task.points or 0
@@ -550,8 +671,14 @@ def _post_task(request_obj, platform, email, points, scheduled_at, status, reaso
 
 def run_deadline_check() -> dict:
     """
-    Find overdue confirmed tasks, mark them LATE and issue strikes
-    (docs/PRD.md §5.8).
+    Find overdue confirmed tasks, mark them LATE and tell the people who need
+    to know (docs/PRD.md §5.8).
+
+    This no longer issues strikes: yellow and red strikes are handed out by
+    hand, by a vertical head or the POC/Admin, who decide whether a late task
+    deserves one. The sweep's job is only to flag the task and make sure the
+    assignee, the Event Coordinator, the Task Supervisor and the committee
+    head all hear about it.
 
     Driven hourly by Windows Task Scheduler via `manage.py deadline_check`.
     Returns a summary so the command can report it.
@@ -561,7 +688,8 @@ def run_deadline_check() -> dict:
 
     overdue = list(
         Task.objects.filter(status=TaskStatus.CONFIRMED, deadline__lt=now, struck=False)
-        .exclude(task=TASK_EVENT_COORDINATOR)  # the coordinator isn't a deliverable
+        # Neither the coordinator nor the supervisor is a deliverable.
+        .exclude(task__in=[TASK_EVENT_COORDINATOR, TASK_SUPERVISOR])
         .select_related("request")
     )
 
@@ -572,30 +700,32 @@ def run_deadline_check() -> dict:
     late_count = 0
     for task in overdue:
         coordinator = (task.coordinator_email or "").lower()
+        supervisor = (task.request.supervisor_email or "").lower()
         assignee = (task.email or "").lower()
         try:
             with transaction.atomic():
-                task.status = TaskStatus.LATE
-                task.struck = True
-                task.save(update_fields=["status", "struck"])
-                if coordinator:
-                    add_strike(coordinator)
-                if settings.strike_assignee_too and assignee:
-                    add_strike(assignee)
+                # Re-check under lock: `overdue` was read without one, so an
+                # overlapping run (a manual invocation racing the scheduled
+                # one) may already have handled this exact task by the time
+                # this transaction starts.
+                locked = Task.objects.select_for_update().get(pk=task.pk)
+                if locked.struck or locked.status != TaskStatus.CONFIRMED:
+                    continue
+                locked.status = TaskStatus.LATE
+                locked.struck = True
+                locked.save(update_fields=["status", "struck"])
             late_count += 1
         except Exception as exc:
             logger.error("deadline check failed for task %s: %s", task.pk, exc)
             continue
 
-        recipients = [
-            address
-            for address in (
-                coordinator,
-                assignee if settings.strike_assignee_too else "",
-                settings.head_email or "",
+        recipients = list(
+            dict.fromkeys(
+                address
+                for address in (assignee, coordinator, supervisor, settings.head_email or "")
+                if address
             )
-            if address
-        ]
+        )
         email_service.send(
             recipients,
             f"[Late] {task.ref_code} {task.task}",
@@ -609,14 +739,6 @@ def run_deadline_check() -> dict:
             member=assignee,
             detail=f"{task.task} marked LATE",
         )
-        if coordinator:
-            log_activity(
-                "strike",
-                request_obj=task.request,
-                ref_code=task.ref_code,
-                member=coordinator,
-                detail=f"Strike to coordinator for late {task.task}",
-            )
 
     logger.info("deadline check: marked %d task(s) LATE", late_count)
     return {"late": late_count, "checked_at": now}

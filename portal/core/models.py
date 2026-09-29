@@ -65,10 +65,6 @@ class PortalSettings(SingletonModel):
         default=48,
         help_text="Coverage requests for events starting within this many hours are held for POC approval.",
     )
-    strike_limit = models.PositiveIntegerField(
-        default=3,
-        help_text="A member at or above this many strikes stops being eligible for new assignments.",
-    )
     campus_strict = models.BooleanField(
         default=True,
         help_text="Only assign members from the same campus as the requesting body.",
@@ -76,10 +72,6 @@ class PortalSettings(SingletonModel):
     require_approval_always = models.BooleanField(
         default=False,
         help_text="Hold every request for POC approval, not just short-notice ones.",
-    )
-    strike_assignee_too = models.BooleanField(
-        default=False,
-        help_text="On a missed deadline, strike the assignee as well as the coordinator.",
     )
 
     secretary_emails = models.JSONField(
@@ -157,7 +149,9 @@ class TaskType(models.Model):
 
     task = models.CharField(max_length=100, unique=True)
     required_skill = models.CharField(
-        max_length=100, help_text="A member needs this skill to be eligible."
+        max_length=100,
+        blank=True,
+        help_text="A member needs this skill to be eligible. Blank = no skill needed.",
     )
     points = models.IntegerField(default=0)
     sla_hours = models.PositiveIntegerField(
@@ -215,6 +209,12 @@ class Platform(models.Model):
             )
         ]
 
+    def save(self, *args, **kwargs):
+        # Assignee lookups everywhere compare lower-cased emails; a handler typed
+        # in mixed case in the admin would get posts they can never find.
+        self.handler_email = (self.handler_email or "").strip().lower()
+        super().save(*args, **kwargs)
+
     def __str__(self) -> str:
         return f"{self.platform} ({self.handler_email})"
 
@@ -265,16 +265,25 @@ class TeamMember(models.Model):
     skills = models.JSONField(
         default=list, blank=True, help_text="Matched against a task type's required skill."
     )
-    vertical = models.CharField(max_length=50, blank=True)
+    vertical = models.CharField(
+        max_length=50, blank=True, help_text="Primary vertical. Auto-assignment tries these members first."
+    )
+    secondary_vertical = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Second vertical they can also work in. Tried after the primary-vertical members.",
+    )
     year = models.PositiveSmallIntegerField(
-        default=1, help_text="Academic year. Second-years may assign tasks anywhere."
+        default=1,
+        help_text="Academic year. Second-years are only ever Task Supervisors; first-years do the work.",
     )
     campus = models.CharField(max_length=50, blank=True)
     phone = models.CharField(max_length=30, blank=True)
     active = models.BooleanField(default=True)
 
     points = models.IntegerField(default=0)
-    strikes = models.IntegerField(default=0)
+    yellow_strikes = models.IntegerField(default=0, help_text="Warnings. Given manually; never block work.")
+    red_strikes = models.IntegerField(default=0, help_text="Serious strikes. Given manually by POC/Admin.")
 
     domain_head_of = models.CharField(
         max_length=50,
@@ -308,6 +317,19 @@ class TeamMember(models.Model):
     @property
     def is_second_year(self) -> bool:
         return self.year == 2
+
+    def in_vertical(self, vertical: str) -> bool:
+        """True if `vertical` is this member's primary or secondary vertical."""
+        return bool(vertical) and vertical in (self.vertical, self.secondary_vertical)
+
+    @property
+    def vertical_label(self) -> str:
+        """"Photography / Videography", or just the one, or blank."""
+        return " / ".join(v for v in (self.vertical, self.secondary_vertical) if v)
+
+    @property
+    def strike_label(self) -> str:
+        return f"{self.yellow_strikes} yellow, {self.red_strikes} red"
 
 
 # ── Workflow ─────────────────────────────────────────────────────────────────
@@ -345,6 +367,9 @@ class Request(models.Model):
     notes = models.TextField(blank=True)
 
     coordinator_email = models.EmailField(blank=True, db_index=True)
+    supervisor_email = models.EmailField(
+        blank=True, db_index=True, help_text="The Task Supervisor (Coverage only). Only staff can change it."
+    )
     roster = models.JSONField(
         default=list, blank=True, help_text="Contact-facing assignees, as sent to the requester."
     )
@@ -366,6 +391,33 @@ class Request(models.Model):
     @property
     def is_terminal(self) -> bool:
         return self.status in RequestStatus.TERMINAL
+
+
+class SubEvent(models.Model):
+    """
+    One item in a Coverage request's schedule — "Inauguration, 10:00, Auditorium".
+
+    A sub-event is information for the team, not extra work: the main event's
+    team covers all of them, so it has no tasks or assignees of its own. It may
+    fall outside the main event's window.
+    """
+
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="sub_events")
+    name = models.CharField(max_length=200)
+    start = models.DateTimeField()
+    end = models.DateTimeField()
+    venue = models.CharField(max_length=300, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["start", "pk"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(end__gt=models.F("start")), name="subevent_end_after_start")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.request})"
 
 
 class Task(models.Model):
@@ -400,7 +452,8 @@ class Task(models.Model):
         default=False, help_text="Engine flag: completion-timing modifier already applied. Don't edit."
     )
     struck = models.BooleanField(
-        default=False, help_text="Engine flag: a strike was already issued for this task. Don't edit."
+        default=False,
+        help_text="Engine flag: this task was already marked LATE by the deadline sweep. Don't edit.",
     )
 
     status = models.CharField(

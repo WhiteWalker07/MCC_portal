@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from django.db import transaction
 
+from core.constants import normalise_vertical
 from core.models import TeamMember
 
 
@@ -52,15 +53,35 @@ def import_rows(rows: list[dict]) -> tuple[list[RowResult], dict]:
             continue
 
         skills = [s.strip() for s in (raw.get("skills") or "").replace(",", ";").split(";") if s.strip()]
+        active_cell = (raw.get("active") or "").strip()
+        # The secondary vertical is only written when the file actually has that
+        # column: rosters exported before it existed must not wipe everyone's
+        # secondary vertical on re-import.
+        has_secondary_column = "secondaryVertical" in raw or "secondary_vertical" in raw
+        secondary = normalise_vertical(raw.get("secondaryVertical") or raw.get("secondary_vertical") or "")
         data = {
             "name": name,
-            "vertical": (raw.get("vertical") or "").strip(),
+            "vertical": normalise_vertical(raw.get("vertical") or ""),
             "year": int(raw.get("year") or 1) if str(raw.get("year") or "").strip().isdigit() else 1,
-            "domain_head_of": (raw.get("domainHeadOf") or raw.get("domain_head_of") or "").strip(),
+            "domain_head_of": normalise_vertical(
+                raw.get("domainHeadOf") or raw.get("domain_head_of") or ""
+            ),
             "skills": skills,
             "campus": (raw.get("campus") or "").strip(),
             "phone": (raw.get("phone") or "").strip(),
-            "active": _parse_bool(raw.get("active"), True),
+        }
+        # Which columns the file actually has. A re-import of a partial roster
+        # (say just email, name, vertical) must leave every other field on an
+        # existing member alone — otherwise it strips headships, resets
+        # second-years to year 1 and blanks phones and skills.
+        columns = {
+            "name": ("name",),
+            "vertical": ("vertical",),
+            "year": ("year",),
+            "domain_head_of": ("domainHeadOf", "domain_head_of"),
+            "skills": ("skills",),
+            "campus": ("campus",),
+            "phone": ("phone",),
         }
 
         try:
@@ -68,11 +89,30 @@ def import_rows(rows: list[dict]) -> tuple[list[RowResult], dict]:
                 existing = TeamMember.objects.filter(email=email).first()
                 if existing:
                     for field, value in data.items():
+                        if not any(column in raw for column in columns[field]):
+                            continue
+                        if field == "year" and not str(raw.get("year") or "").strip().isdigit():
+                            continue  # a blank/garbled year cell must not demote a second-year
                         setattr(existing, field, value)
+                    # Only touch "active" when the row actually says something —
+                    # a blank/absent column must leave a member's current
+                    # active status alone, not silently reactivate them.
+                    if active_cell:
+                        existing.active = _parse_bool(active_cell, True)
+                    if has_secondary_column:
+                        existing.secondary_vertical = secondary
                     existing.save()
                     results.append(RowResult(email=email, status="updated"))
                 else:
-                    TeamMember.objects.create(email=email, points=0, strikes=0, **data)
+                    TeamMember.objects.create(
+                        email=email,
+                        points=0,
+                        yellow_strikes=0,
+                        red_strikes=0,
+                        active=_parse_bool(active_cell, True),
+                        secondary_vertical=secondary,
+                        **data,
+                    )
                     results.append(RowResult(email=email, status="created"))
         except Exception as exc:
             results.append(RowResult(email=email, status="error", message=str(exc)))

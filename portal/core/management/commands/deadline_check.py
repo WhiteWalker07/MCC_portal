@@ -16,7 +16,7 @@ from engine.workflow import run_deadline_check
 
 
 class Command(BaseCommand):
-    help = "Mark overdue confirmed tasks LATE and issue the resulting strikes."
+    help = "Mark overdue confirmed tasks LATE and email the people who need to know (no strikes)."
 
     def handle(self, *args, **options):
         result = run_deadline_check()

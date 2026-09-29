@@ -26,6 +26,18 @@ urlpatterns = [
     path("requests/", views.request_list, name="request-list"),
     path("requests/<int:pk>/", views.request_detail, name="request-detail"),
     path("requests/<int:pk>/venue/", views.request_edit_venue, name="request-edit-venue"),
+    path("requests/<int:pk>/time/", views.request_edit_time, name="request-edit-time"),
+    path("requests/<int:pk>/subevents/add/", views.request_subevent_add, name="request-subevent-add"),
+    path(
+        "requests/<int:pk>/subevents/<int:sub_pk>/edit/",
+        views.request_subevent_edit,
+        name="request-subevent-edit",
+    ),
+    path(
+        "requests/<int:pk>/subevents/<int:sub_pk>/delete/",
+        views.request_subevent_delete,
+        name="request-subevent-delete",
+    ),
 
     path("tasks/", views.task_list, name="task-list"),
     path("tasks/<int:pk>/done/", views.task_complete, name="task-complete"),
@@ -48,6 +60,7 @@ urlpatterns = [
     path("portal-admin/vertical-head/", views.set_vertical_head, name="vertical-head"),
     path("portal-admin/availability/", views.set_availability, name="set-availability"),
     path("portal-admin/phone/", views.set_member_phone, name="set-member-phone"),
+    path("portal-admin/verticals/", views.set_member_verticals, name="set-member-verticals"),
     path("portal-admin/points/", views.point_scheme, name="point-scheme"),
     path("portal-admin/committees/", views.committee_manage, name="committee-manage"),
     path("portal-admin/remove-strike/", views.remove_strike, name="remove-strike"),

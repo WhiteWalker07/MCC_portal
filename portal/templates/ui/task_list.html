@@ -20,7 +20,12 @@
               {% endif %}
             </div>
           </div>
-          {% if t.status == "CONFIRMED" or t.status == "LATE" %}
+          {% if t.task == "Task Supervisor" %}
+            {% if t.status != "DONE" %}
+              <a class="btn btn--sm" href="{% url 'request-detail' t.request_id %}"
+                 title="This closes on its own when the Event Coordinator marks the event done">Supervising — view</a>
+            {% endif %}
+          {% elif t.status == "CONFIRMED" or t.status == "LATE" %}
             {% if t.awaits_event %}
               <button class="btn btn--sm" type="button" disabled
                 title="Available once the event starts on {{ t.event_start|date:'d M Y, H:i' }}">

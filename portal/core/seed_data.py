@@ -10,6 +10,8 @@ Kept as plain data separate from the command that loads it, so it is easy to
 scan and diff — the roster is the part people actually review.
 """
 
+from core.constants import VERTICAL_SKILLS
+
 ADMIN_EMAILS = ["mbatm25010@iimsirmaur.ac.in"]
 SECRETARY_EMAILS = ["mba25114@iimsirmaur.ac.in"]
 
@@ -62,13 +64,16 @@ COMMITTEES = [
 ]
 
 
-#: Senior Coordinators (year 2) also gain Coordination and Vetting, which is what
-#: makes them eligible for the Event Coordinator and Vetter roles.
+#: Second-years ("seniors") only ever supervise: they are eligible for the Task
+#: Supervisor role and nothing else. First-years ("execs") do all the hands-on
+#: work — photography, videography, editing, writing, design, and coordinating
+#: an event. (engine/assign.py is the one place that rule is enforced.)
 SENIOR = 2
 EXEC = 1
 
-# (email, name, vertical, campus, year, skills)
-TEAM = [
+# (email, name, vertical, campus, year, skills) — the original roster. No
+# secondary vertical or phone on record for these; both start blank.
+_EXISTING_TEAM = [
     ("mba25178@iimsirmaur.ac.in", "Sanjana Jaiswal", "Graphic Designs", "MBA Campus", SENIOR, ["Graphic design"]),
     ("mba25189@iimsirmaur.ac.in", "Aisha Firdouse", "Graphic Designs", "MBA Campus", SENIOR, ["Graphic design", "Video Editing", "Photography", "Videography"]),
     ("mbatm25033@iimsirmaur.ac.in", "Priyal Shende", "Content Writing", "MBA Campus", SENIOR, ["Content Writing", "Photography"]),
@@ -95,14 +100,58 @@ TEAM = [
 ]
 
 
-def team_skills(year: int, skills: list[str]) -> list[str]:
-    """Second-years additionally hold the coordination and vetting skills."""
-    combined = list(skills)
-    if year == SENIOR:
-        for extra in ("Coordination", "Vetting"):
-            if extra not in combined:
-                combined.append(extra)
-    return combined
+# The 2026 first-year intake (MBA Campus), from the "Team DATA" sheet:
+# (email, name, primary vertical, secondary vertical, phone). Their skills are
+# derived from BOTH verticals — see `derived_skills`.
+_FIRST_YEARS_2026 = [
+    ("mba26074@iimsirmaur.ac.in", "Aishwarya Arun Patil", "Photography", "Videography", "9130251222"),
+    ("mba26254@iimsirmaur.ac.in", "Pragyi", "Photography", "Content Writing", "8292147297"),
+    ("mbatm26019@iimsirmaur.ac.in", "Muhammed Afthab", "Photography", "Videography", "8606770779"),
+    ("mba26154@iimsirmaur.ac.in", "Ishan Dubey", "Videography", "Photography", "7489890397"),
+    ("mba26020@iimsirmaur.ac.in", "DEEPANSHU KUMAR", "Photography", "Videography", "9315981547"),
+    ("mba26106@iimsirmaur.ac.in", "Om Shinde", "Graphic Designs", "Photography", "8080150550"),
+    ("mba26045@iimsirmaur.ac.in", "Piyush sharma", "Photography", "Graphic Designs", "9149448470"),
+    ("mbatm26034@iimsirmaur.ac.in", "Shruti Randhe", "Videography", "Photography", "9156516558"),
+    ("mbatm26036@iimsirmaur.ac.in", "Jaspreet Kaur", "Photography", "Videography", "9817906505"),
+    ("mba26048@iimsirmaur.ac.in", "Priyanshi Mehta", "Content Writing", "Videography", "9671436175"),
+    ("mba26209@iimsirmaur.ac.in", "Gunjan Yadav", "Graphic Designs", "Photography", "9899010125"),
+    ("mba26142@iimsirmaur.ac.in", "Ayush", "Photography", "Videography", "8287430993"),
+    ("mba26067@iimsirmaur.ac.in", "Pavan Vaghela", "Photography", "Videography", "9427334693"),
+    ("mbatm26002@iimsirmaur.ac.in", "Aditya Kumar", "Videography", "Photography", "9971082340"),
+]
+
+
+def derived_skills(*verticals: str) -> list[str]:
+    """The skills that working in these verticals brings, in order, without repeats."""
+    skills: list[str] = []
+    for vertical in verticals:
+        for skill in VERTICAL_SKILLS.get(vertical, []):
+            if skill not in skills:
+                skills.append(skill)
+    return skills
+
+
+def _member(email, name, vertical, secondary_vertical, campus, year, skills, phone) -> dict:
+    return {
+        "email": email,
+        "name": name,
+        "vertical": vertical,
+        "secondary_vertical": secondary_vertical,
+        "campus": campus,
+        "year": year,
+        "skills": list(skills),
+        "phone": phone,
+    }
+
+
+#: The full roster the seed command loads, one dict per member.
+TEAM = [
+    _member(email, name, vertical, "", campus, year, skills, "")
+    for email, name, vertical, campus, year, skills in _EXISTING_TEAM
+] + [
+    _member(email, name, primary, secondary, "MBA Campus", EXEC, derived_skills(primary, secondary), phone)
+    for email, name, primary, secondary, phone in _FIRST_YEARS_2026
+]
 
 
 # (task, required_skill, points, sla_hours, at_event, requestable, internal_assignable, vertical)
@@ -112,9 +161,16 @@ TASK_TYPES = [
     ("Content Writer", "Content Writing", 3, 12, True, False, True, "Content Writing"),
     ("Photo Editor", "Photo Editing", 3, 24, False, False, True, "Photography"),
     ("Video Editor", "Video Editing", 5, 48, False, False, True, "Videography"),
-    ("Vetter", "Vetting", 2, 24, False, False, True, ""),
-    ("Event Coordinator", "Coordination", 4, 0, True, False, True, ""),
+    # Kept only so requests accepted before the Vetter was dropped still resolve
+    # it; nobody can add one by hand any more (internal_assignable=False) and no
+    # new request creates one.
+    ("Vetter", "Vetting", 2, 24, False, False, False, ""),
+    # Any active first-year can coordinate an event — no skill required.
+    ("Event Coordinator", "", 4, 0, True, False, True, ""),
     ("Graphic Designer", "Graphic design", 5, 24, False, False, True, "Graphic Designs"),
+    # A second-year overseeing one Coverage request: no skill, no points, no
+    # deadline; closes when the Event Coordinator marks the event done.
+    ("Task Supervisor", "", 0, 0, False, False, True, ""),
 ]
 
 SLOTS = ["11:00", "14:00", "17:00"]
@@ -143,10 +199,8 @@ POINTS_SCHEME = {
 
 SETTINGS = {
     "sla_hours": 48,
-    "strike_limit": 3,
     "campus_strict": True,
     "require_approval_always": False,
-    "strike_assignee_too": False,
     "head_email": "",
     "committee_name": "Media & Communications Committee",
     "default_acronym": "MEDIA",

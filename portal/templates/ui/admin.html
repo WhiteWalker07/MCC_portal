@@ -50,7 +50,7 @@
             {% csrf_token %}
             <select class="input" name="member_email">
               <option value="">— choose member —</option>
-              {% for m in members %}<option value="{{ m.email }}"{% if head.email == m.email %} selected{% endif %}>{{ m.name }}{% if m.vertical %} · {{ m.vertical }}{% endif %}</option>{% endfor %}
+              {% for m in members %}<option value="{{ m.email }}"{% if head.email == m.email %} selected{% endif %}>{{ m.name }}{% if m.vertical_label %} · {{ m.vertical_label }}{% endif %}</option>{% endfor %}
             </select>
             <input type="hidden" name="vertical" value="{{ vertical }}" />
             <button type="submit" class="btn btn--sm btn--primary">Set</button>
@@ -81,7 +81,7 @@
         <tbody>
           {% for m in members %}
             <tr>
-              <td>{{ m.name }}{% if m.vertical %}<br><span class="muted">{{ m.vertical }}</span>{% endif %}</td>
+              <td>{{ m.name }}{% if m.vertical_label %}<br><span class="muted">{{ m.vertical_label }}</span>{% endif %}</td>
               <td><span class="status" data-status="{% if m.availability == 'out' %}LATE{% else %}CONFIRMED{% endif %}">{% if m.availability == 'out' %}Out of work{% else %}On work{% endif %}</span></td>
               <td>{{ m.on_work_days }} d</td>
               <td>{{ m.out_days }} d</td>
@@ -107,12 +107,14 @@
 
 <section class="card stack">
   <h1>Strikes</h1>
-  <p class="muted">Waive a strike issued in error. Secretary/admin only — unlike issuing one,
-    which a vertical head may also do from the Assignments page.</p>
+  <p class="muted">Waive a yellow or red strike given in error. Secretary/admin only — unlike giving
+    one, which a vertical head may also do (yellow only) from the Assignments page. Give a red
+    strike from there too. Strikes never affect who gets assigned work.</p>
   {% if remove_strike_form %}
     <form method="post" action="{% url 'remove-strike' %}" class="row">
       {% csrf_token %}
       {{ remove_strike_form.member_email }}
+      {{ remove_strike_form.color }}
       {{ remove_strike_form.reason }}
       <button type="submit" class="btn btn--sm">Remove strike</button>
     </form>
@@ -125,17 +127,36 @@
   <h1>Team roster</h1>
   <p class="muted">Contact numbers shown here are what clubs see once a member is assigned to
     their request (the request page and the acceptance email both read this same field) — keep
-    it current. Edit any other field (skills, vertical, campus…) via
-    <a href="/admin/core/teammember/">Django admin</a> or a fresh CSV import below.</p>
+    it current. Each member has a <strong>primary</strong> and an optional <strong>secondary</strong>
+    vertical: auto-assignment tries primary-vertical members first, then secondary. Edit any other
+    field (skills, campus…) via <a href="/admin/core/teammember/">Django admin</a> or a fresh CSV import below.
+    <strong>Note:</strong> every deploy re-applies the verticals in <code>core/seed_data.py</code>, so a
+    change here that should last also has to be made in that file.</p>
   {% if members %}
     <div style="overflow-x:auto">
       <table class="roster">
-        <thead><tr><th>Member</th><th>Email</th><th>Contact number</th><th></th></tr></thead>
+        <thead><tr><th>Member</th><th>Year</th><th>Verticals (primary / secondary)</th><th>Strikes</th><th>Contact number</th></tr></thead>
         <tbody>
           {% for m in members %}
             <tr>
-              <td>{{ m.name }}{% if m.vertical %}<br><span class="muted">{{ m.vertical }}</span>{% endif %}</td>
-              <td class="mono">{{ m.email }}</td>
+              <td>{{ m.name }}<br><span class="muted mono">{{ m.email }}</span></td>
+              <td>{{ m.year }}</td>
+              <td>
+                <form method="post" action="{% url 'set-member-verticals' %}" class="row">
+                  {% csrf_token %}
+                  <input type="hidden" name="member_email" value="{{ m.email }}" />
+                  <select name="vertical" class="input">
+                    <option value="">—</option>
+                    {% for v in verticals %}<option value="{{ v }}"{% if m.vertical == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+                  </select>
+                  <select name="secondary_vertical" class="input">
+                    <option value="">—</option>
+                    {% for v in verticals %}<option value="{{ v }}"{% if m.secondary_vertical == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+                  </select>
+                  <button type="submit" class="btn btn--sm">Save</button>
+                </form>
+              </td>
+              <td>{{ m.yellow_strikes }} yellow · {{ m.red_strikes }} red</td>
               <td>
                 <form method="post" action="{% url 'set-member-phone' %}" class="row">
                   {% csrf_token %}
@@ -170,7 +191,8 @@
 
 <section class="card stack">
   <h1>Team admin — CSV import</h1>
-  <p class="muted">Columns: <code>name, email, vertical, year, domainHeadOf, skills, campus, phone, active</code>.
+  <p class="muted">Columns: <code>name, email, vertical, secondaryVertical, year, domainHeadOf, skills, campus, phone, active</code>
+    (<code>secondaryVertical</code> and <code>active</code> optional).
     Use <code>;</code> between multiple skills. Re-importing updates existing members (points/strikes preserved).</p>
   <form method="post" action="{% url 'team-import' %}" enctype="multipart/form-data" class="stack">
     {% csrf_token %}
