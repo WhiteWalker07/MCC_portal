@@ -89,15 +89,26 @@ def switch_availability(email: str, next_status: str, actor: str) -> TeamMember:
 # ── Requesting ──────────────────────────────────────────────────────────────
 
 
-def open_tasks_for(member) -> list[Task]:
-    """Tasks the member still has to do on live requests — what the POC should look at."""
-    return list(
-        Task.objects.filter(email=member.email)
-        .exclude(status__in=[TaskStatus.DONE, TaskStatus.UNFILLED])
+def _open_tasks():
+    return (
+        Task.objects.exclude(status__in=[TaskStatus.DONE, TaskStatus.UNFILLED])
         .exclude(request__status__in=RequestStatus.TERMINAL)
         .select_related("request")
         .order_by("deadline", "task")
     )
+
+
+def open_tasks_for(member) -> list[Task]:
+    """Tasks the member still has to do on live requests — what the POC should look at."""
+    return list(_open_tasks().filter(email=member.email))
+
+
+def open_tasks_by_email(members) -> dict[str, list[Task]]:
+    """`open_tasks_for` for several members in one query, keyed by email."""
+    grouped: dict[str, list[Task]] = {m.email: [] for m in members}
+    for task in _open_tasks().filter(email__in=list(grouped)):
+        grouped[task.email].append(task)
+    return grouped
 
 
 def _task_lines(tasks) -> str:
@@ -127,14 +138,15 @@ def request_leave(member, reason: str, start_date: date, end_date: date) -> Leav
         raise LeaveError("The start date can't be in the past.")
     if end_date < start_date:
         raise LeaveError("The end date can't be before the start date.")
-    # Judge by what the database says now, not by a copy loaded earlier in the request.
-    member.refresh_from_db(fields=["availability"])
-    if member.availability == Availability.OUT:
-        raise LeaveError("You're already marked Out of work.")
-    if open_leave_for(member) is not None:
-        raise LeaveError("You already have an Out-of-work request open — withdraw it first to send a new one.")
-
     with transaction.atomic():
+        # Checked on the locked member row, inside the same transaction as the
+        # insert, so a double-submitted form can't open two requests. Judge by
+        # what the database says now, not by a copy loaded earlier in the request.
+        locked = TeamMember.objects.select_for_update().get(pk=member.pk)
+        if locked.availability == Availability.OUT:
+            raise LeaveError("You're already marked Out of work.")
+        if open_leave_for(locked) is not None:
+            raise LeaveError("You already have an Out-of-work request open — withdraw it first to send a new one.")
         leave = LeaveRequest.objects.create(
             member=member, reason=reason, start_date=start_date, end_date=end_date
         )

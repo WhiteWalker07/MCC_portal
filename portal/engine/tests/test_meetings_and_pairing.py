@@ -17,12 +17,12 @@ from django.test import TestCase
 from django.utils import timezone
 
 from core.config import get_points_scheme
-from core.constants import Attendance, Availability, TaskStatus
-from core.models import Meeting, MeetingInvite, Request, Task, TeamMember
+from core.constants import Attendance, Availability, LeaveStatus, TaskStatus
+from core.models import LeaveRequest, Meeting, MeetingInvite, Request, Task, TaskType, TeamMember
 from engine import meetings as engine
 from engine.assignment import override_proposed_assignee, perform_swap
 from engine.event_changes import apply_event_time_change
-from engine.pipeline import coordinator_deadline, refresh_coordinator_deadline
+from engine.pipeline import compute_deadline, coordinator_deadline, refresh_coordinator_deadline
 from engine.points import overdue_multiplier
 from engine.workflow import _award_completion_points, process_new_request, run_deadline_check
 
@@ -108,6 +108,35 @@ class CoordinatorDeadlineTests(TestCase):
             apply_event_time_change(request, request.event_start, new_end, "club")
         coordinator = request.tasks.get(task="Event Coordinator")
         self.assertEqual(coordinator.deadline, new_end + timedelta(hours=36))
+
+    def test_a_late_coordinator_is_watched_again_when_its_deadline_moves_out(self):
+        request = accepted_coverage()
+        request.tasks.filter(task="Event Coordinator").update(status=TaskStatus.LATE, struck=True)
+        Task.objects.create(
+            request=request, req_type="Coverage", ref_code=request.ref_code, task="Video Editor",
+            email=NEHA, member="Neha", status=TaskStatus.CONFIRMED,
+            deadline=timezone.now() + timedelta(days=10),
+        )
+        refresh_coordinator_deadline(request)
+        coordinator = request.tasks.get(task="Event Coordinator")
+        self.assertEqual(coordinator.status, TaskStatus.CONFIRMED)
+        self.assertFalse(coordinator.struck)
+
+    def test_a_coordinator_on_a_post_request_has_no_deadline(self):
+        coordinator_type = TaskType.objects.get(task="Event Coordinator")
+        self.assertIsNone(compute_deadline(coordinator_type, Request(type="Post"), timezone.now()))
+
+    def test_the_data_migration_retimes_coordinators_still_on_the_old_deadline(self):
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("core.migrations.0006_retime_event_coordinators")
+        request = accepted_coverage()
+        expected = request.tasks.get(task="Event Coordinator").deadline
+        request.tasks.filter(task="Event Coordinator").update(deadline=request.event_end)  # the old rule
+        migration.apply(apps, None)
+        self.assertEqual(request.tasks.get(task="Event Coordinator").deadline, expected)
 
     def test_coordinator_deadline_helper_handles_no_event_end(self):
         request = Request(type="Coverage", event_end=None)
@@ -448,6 +477,23 @@ class MeetingEmailTests(MeetingBase):
         with self.assertRaises(engine.MeetingError):
             engine.cancel_meeting(meeting, actor="poc@iimsirmaur.ac.in")
 
+    def test_an_edit_from_a_stale_copy_cannot_undo_a_cancellation(self):
+        meeting = self.call()
+        stale = Meeting.objects.get(pk=meeting.pk)  # the editor's copy, read before the cancel
+        engine.cancel_meeting(meeting, actor="poc@iimsirmaur.ac.in")
+        mail.outbox.clear()
+        with self.assertRaises(engine.MeetingError):
+            engine.update_meeting(
+                stale, title="Weekly sync", start=stale.start, end=stale.end, venue="Room 9",
+                agenda="Roster", invitees=[self.asha], wants_mom=False, actor="poc@iimsirmaur.ac.in",
+            )
+        with self.assertRaises(engine.MeetingError):
+            engine.set_mom(stale, self.asha, actor="poc@iimsirmaur.ac.in")
+        meeting.refresh_from_db()
+        self.assertTrue(meeting.is_cancelled)
+        self.assertEqual(meeting.venue, "Room 4")
+        self.assertEqual(mail.outbox, [])
+
     def test_a_meeting_that_has_started_can_no_longer_be_changed(self):
         meeting = self.call()
         Meeting.objects.filter(pk=meeting.pk).update(start=timezone.now() - timedelta(minutes=5))
@@ -519,6 +565,24 @@ class AttendanceTests(MeetingBase):
         self.assertEqual(self.strikes(), 3)
         self.mark(Attendance.PRESENT)
         self.assertEqual(self.strikes(), 2)
+
+    def test_no_strike_for_someone_out_on_an_approved_leave_at_the_time(self):
+        LeaveRequest.objects.create(
+            member=self.neha, reason="exams", start_date=timezone.localdate(), end_date=timezone.localdate(),
+            status=LeaveStatus.APPROVED, started_at=timezone.now() - timedelta(hours=2),
+        )
+        updated = self.mark(Attendance.ABSENT)
+        self.assertEqual(updated.attendance, Attendance.ABSENT)
+        self.assertEqual(self.strikes(), 0)
+
+    def test_a_leave_ended_before_the_meeting_does_not_excuse_it(self):
+        LeaveRequest.objects.create(
+            member=self.neha, reason="exams", start_date=timezone.localdate(), end_date=timezone.localdate(),
+            status=LeaveStatus.ENDED, started_at=timezone.now() - timedelta(hours=5),
+            ended_at=timezone.now() - timedelta(hours=2),
+        )
+        self.mark(Attendance.ABSENT)
+        self.assertEqual(self.strikes(), 1)
 
     def test_it_is_recorded_in_the_activity_log(self):
         from core.models import ActivityLog

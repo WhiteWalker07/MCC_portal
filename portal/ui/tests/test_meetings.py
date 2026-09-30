@@ -184,6 +184,14 @@ class MeetingPagesTests(MeetingViewBase):
         self.assertEqual(self.meeting.venue, "Room 9")
         self.assertTrue(any(m.subject.startswith("[Meeting updated]") for m in mail.outbox))
 
+    def test_editing_keeps_an_invitee_who_has_since_gone_out_of_work(self):
+        TeamMember.objects.filter(email=RAVI).update(availability=Availability.OUT)
+        self.client.force_login(self.head)
+        response = self.client.post(reverse("meeting-edit", args=[self.meeting.pk]), self.form(agenda="New"))
+        self.assertRedirects(response, self.url)
+        self.assertEqual(set(self.meeting.invites.values_list("member__email", flat=True)), {NEHA, RAVI})
+        self.assertFalse(any("no longer invited" in m.subject for m in mail.outbox))
+
     def test_cancelling(self):
         cancel = reverse("meeting-cancel", args=[self.meeting.pk])
         self.client.force_login(self.neha)

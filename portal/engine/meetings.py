@@ -16,7 +16,8 @@ the venue. The system suggests the first-year invitee with the fewest points
 first-year invitee. It is a responsibility only: nothing is uploaded and there
 are no points.
 
-**Attendance.** Marking someone Absent gives them a yellow strike, automatically;
+**Attendance.** Marking someone Absent gives them a yellow strike, automatically
+(unless they were out on an approved leave at the time);
 changing that mark to anything else takes the strike back off. `strike_given`
 on the invite is what makes both directions idempotent -- re-saving the same
 mark never double-strikes, and only a strike this meeting gave is ever removed.
@@ -31,12 +32,12 @@ from __future__ import annotations
 from datetime import datetime
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from core.activity import log_activity
-from core.constants import CAMPUS_MBA, Attendance, Availability
-from core.models import Meeting, MeetingInvite, TeamMember
+from core.constants import CAMPUS_MBA, Attendance, Availability, LeaveStatus
+from core.models import LeaveRequest, Meeting, MeetingInvite, TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
 
@@ -95,12 +96,17 @@ def resolve_invitees(mode: str, verticals=(), emails=()) -> list[TeamMember]:
     return list(pool)
 
 
+def can_take_mom(member) -> bool:
+    """Second-years only supervise, so they never take the minutes."""
+    return member.year != 2
+
+
 def choose_mom(invitees, *, exclude_email: str = "") -> TeamMember | None:
     """
     The suggested minutes-taker: the first-year invitee with the fewest points
-    (name breaks a tie). Second-years only supervise, so they aren't picked.
+    (name breaks a tie).
     """
-    pool = [m for m in invitees if m.year != 2 and m.email != (exclude_email or "").lower()]
+    pool = [m for m in invitees if can_take_mom(m) and m.email != (exclude_email or "").lower()]
     return min(pool, key=_fairness_key) if pool else None
 
 
@@ -109,7 +115,7 @@ def _check_mom(member, invitees) -> None:
         return
     if member.email not in {m.email for m in invitees}:
         raise MeetingError("The person taking the minutes has to be one of the people invited.")
-    if member.year == 2:
+    if not can_take_mom(member):
         raise MeetingError("Second-years only supervise — pick a first-year to take the minutes.")
 
 
@@ -270,6 +276,15 @@ def _require_open(meeting) -> None:
         raise MeetingError("This meeting has already started — it can no longer be changed.")
 
 
+def _require_open_locked(meeting) -> None:
+    """
+    `_require_open` against the row as it is now, locked for the rest of the
+    transaction, so a cancellation or edit that landed since `meeting` was read
+    is seen rather than overwritten.
+    """
+    _require_open(Meeting.objects.select_for_update().get(pk=meeting.pk))
+
+
 def update_meeting(
     meeting,
     *,
@@ -327,13 +342,17 @@ def update_meeting(
     time_moved = (start, end) != (meeting.start, meeting.end)
 
     with transaction.atomic():
+        _require_open_locked(meeting)
         meeting.title = title.strip()
         meeting.start, meeting.end = start, end
         meeting.venue = (venue or "").strip()
         meeting.agenda = (agenda or "").strip()
         meeting.wants_mom = bool(wants_mom)
         meeting.mom_email = mom.email if mom else ""
-        meeting.save()
+        # Never cancelled_at: a stale copy must not write a cancellation back out.
+        meeting.save(
+            update_fields=["title", "start", "end", "venue", "agenda", "wants_mom", "mom_email", "updated_at"]
+        )
         meeting.invites.filter(member__in=removed).delete()
         MeetingInvite.objects.bulk_create(MeetingInvite(meeting=meeting, member=m) for m in added)
 
@@ -399,9 +418,11 @@ def set_mom(meeting, member: TeamMember | None, *, actor: str) -> None:
     _check_mom(member, invitees)
     old_mom = _mom_member(meeting)
 
-    meeting.wants_mom = member is not None
-    meeting.mom_email = member.email if member else ""
-    meeting.save(update_fields=["wants_mom", "mom_email", "updated_at"])
+    with transaction.atomic():
+        _require_open_locked(meeting)
+        meeting.wants_mom = member is not None
+        meeting.mom_email = member.email if member else ""
+        meeting.save(update_fields=["wants_mom", "mom_email", "updated_at"])
 
     _announce_mom_change(meeting, old_mom, member, _thread(meeting), _caller_name(meeting))
     log_activity(
@@ -415,8 +436,10 @@ def set_mom(meeting, member: TeamMember | None, *, actor: str) -> None:
 def cancel_meeting(meeting, *, actor: str) -> None:
     """Cancel a meeting that hasn't started, and tell every invitee."""
     _require_open(meeting)
-    meeting.cancelled_at = timezone.now()
-    meeting.save(update_fields=["cancelled_at", "updated_at"])
+    with transaction.atomic():
+        _require_open_locked(meeting)
+        meeting.cancelled_at = timezone.now()
+        meeting.save(update_fields=["cancelled_at", "updated_at"])
 
     invitees = [inv.member for inv in meeting.invites.select_related("member")]
     email_service.send(
@@ -432,6 +455,19 @@ def cancel_meeting(meeting, *, actor: str) -> None:
 
 
 # ── Attendance ──────────────────────────────────────────────────────────────
+
+
+def _was_on_leave(member, meeting) -> bool:
+    """
+    Was `member` out on an approved leave at some point during `meeting`? Such an
+    absence is recorded but earns no strike: they were excused by the POC.
+    """
+    return LeaveRequest.objects.filter(
+        Q(ended_at__isnull=True) | Q(ended_at__gt=meeting.start),
+        member=member,
+        status__in=[LeaveStatus.APPROVED, LeaveStatus.ENDED],
+        started_at__lt=meeting.end,
+    ).exists()
 
 
 def mark_attendance(invite, status: str, *, actor: str) -> MeetingInvite:
@@ -451,7 +487,7 @@ def mark_attendance(invite, status: str, *, actor: str) -> MeetingInvite:
     with transaction.atomic():
         locked = MeetingInvite.objects.select_for_update().select_related("member").get(pk=invite.pk)
         gave = took = False
-        if status == Attendance.ABSENT and not locked.strike_given:
+        if status == Attendance.ABSENT and not locked.strike_given and not _was_on_leave(locked.member, meeting):
             TeamMember.objects.filter(pk=locked.member_id).update(yellow_strikes=F("yellow_strikes") + 1)
             locked.strike_given = gave = True
         elif status != Attendance.ABSENT and locked.strike_given:

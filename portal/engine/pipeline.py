@@ -31,6 +31,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
+from django.utils import timezone
+
 from core.constants import (
     COORDINATOR_GRACE_HOURS,
     DERIVED_EDITOR,
@@ -131,24 +133,38 @@ def refresh_coordinator_deadline(request_obj) -> None:
     """
     Recompute the Event Coordinator's deadline from the request's other tasks.
     Call it whenever a task is added or the other deadlines move. A coordinator
-    who has already finished keeps the deadline it was judged against.
+    who has already finished keeps the deadline it was judged against. One
+    marked LATE whose deadline has now moved into the future is watched again.
     """
     if request_obj.type != RequestType.COVERAGE:
         return
     tasks = list(request_obj.tasks.all())
     others = [t.deadline for t in tasks if t.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)]
     new_deadline = coordinator_deadline(request_obj, others)
+    now = timezone.now()
     for task in tasks:
-        if task.task == TASK_EVENT_COORDINATOR and task.status != TaskStatus.DONE and task.deadline != new_deadline:
+        if task.task != TASK_EVENT_COORDINATOR or task.status == TaskStatus.DONE:
+            continue
+        fields = []
+        if task.deadline != new_deadline:
             task.deadline = new_deadline
-            task.save(update_fields=["deadline"])
+            fields.append("deadline")
+        if task.status == TaskStatus.LATE and new_deadline and new_deadline > now:
+            # Any strike already given stands, as for a moved event time.
+            task.status = TaskStatus.CONFIRMED
+            task.struck = False
+            fields += ["status", "struck"]
+        if fields:
+            task.save(update_fields=fields)
 
 
 def compute_deadline(task_type, request_obj, now: datetime) -> datetime | None:
     """When a task of this type, on this request, is due. `None` = no deadline."""
     if task_type.task == TASK_SUPERVISOR:
         return None  # supervising has no due date; it closes with the Event Coordinator
-    if task_type.task == TASK_EVENT_COORDINATOR and request_obj.type == RequestType.COVERAGE:
+    if task_type.task == TASK_EVENT_COORDINATOR:
+        if request_obj.type != RequestType.COVERAGE:
+            return None  # a coordinator added to a Post has no event to be timed against
         # A first guess of "event end + grace". Callers that know the rest of the
         # request's tasks refine it via `coordinator_deadline`.
         end = request_obj.event_end

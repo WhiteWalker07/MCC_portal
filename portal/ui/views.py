@@ -64,7 +64,7 @@ from engine.assign import choose_supervisor, eligible_members
 from engine.assignment import override_proposed_assignee, perform_swap, validate_member
 from engine.confirm import confirm_request
 from engine.event_changes import apply_event_time_change, notify_subevent_change
-from engine.leave import open_leave_for, open_tasks_for, switch_availability
+from engine.leave import open_leave_for, open_tasks_by_email, switch_availability
 from engine.pipeline import compute_deadline, refresh_coordinator_deadline
 from engine.points import base_points_for
 from engine.workflow import (
@@ -1038,12 +1038,13 @@ def approval_list(request):
     pending = Request.objects.filter(status=RequestStatus.PENDING)
     # Out-of-work requests are decided here too. Each comes with the member's open
     # tasks, because approving never moves them: the POC reassigns by hand.
-    leaves = [
-        {"leave": leave, "tasks": open_tasks_for(leave.member)}
-        for leave in LeaveRequest.objects.filter(status=LeaveStatus.PENDING)
+    pending_leaves = list(
+        LeaveRequest.objects.filter(status=LeaveStatus.PENDING)
         .select_related("member")
         .order_by("start_date", "requested_at")
-    ]
+    )
+    tasks_by_email = open_tasks_by_email([leave.member for leave in pending_leaves])
+    leaves = [{"leave": leave, "tasks": tasks_by_email[leave.member.email]} for leave in pending_leaves]
     return render(request, "ui/approval_list.html", {"requests": pending, "leaves": leaves})
 
 
