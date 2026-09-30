@@ -67,10 +67,16 @@ Everything in "Everyone," plus:
 - **Completing on time earns bonus points; badly overdue completion loses
   points** — see the point scheme (Admin can show you the exact numbers if
   you want them).
-- **If you're going to be unavailable** (exams, travel), tell your vertical
-  head or the Secretary/POC so they can mark you "Out of work" — you'll be
-  skipped for new auto-assignments until it's turned back off. This doesn't
-  affect points or strikes, only future assignments.
+- **If you're going to be unavailable** (exams, travel), open your **Profile**
+  → **Out of work** and send a request with a **reason** and **from / to
+  dates**. It goes to the Secretary/POC (or Admin) to approve. Until they
+  approve **and your start date arrives**, nothing changes: you still get work
+  and meeting invitations. Once you're out you're skipped for new assignments
+  and can't be called to meetings. You come back **automatically the day after
+  your last day**, or press **"I'm back"** on your Profile sooner. You can
+  **withdraw** a request before it starts. Your open tasks are **not moved
+  automatically**: tell the POC about any that fall in your dates. This doesn't
+  affect points or strikes. (The POC/Admin can also mark someone out directly.)
 - **Two verticals**: each member has a **primary** and an optional
   **secondary** vertical. Automatic assignment tries people whose primary
   vertical matches the work first, then those with it as their secondary, then
@@ -169,9 +175,15 @@ Everything above, plus:
   second-year; the system suggests one) as you approve. Approving confirms the
   roster and sends notifications; rejecting needs a reason, which gets emailed
   to the requester.
+- **Out-of-work requests** (also on `Approvals`, and open to Admin): you're
+  emailed when a member asks. Each shows their dates, reason and **open tasks**;
+  **Approve** or **Decline** with an optional note (the member is emailed).
+  Approving doesn't move their tasks; reassign any that fall in the dates from
+  `Assignments`.
 - **Calling and running meetings** (`Meetings` → Schedule a meeting; also open
   to Admin and vertical heads): give a title, date, start/end time, venue
-  (optional) and agenda, and invite the **whole team**, **chosen verticals**
+  (optional) and agenda, and invite the **whole team**, **MBA 1st year** (every
+  first-year on the MBA Campus, one click), **chosen verticals**
   (primary or secondary) or **chosen people**. Anyone marked Out of work is
   not listed and can't be called. Tick **"Assign one person to take the minutes
   (MOM) and book the venue"** to have the system suggest the first-year invitee
@@ -182,11 +194,15 @@ Everything above, plus:
 - **Strikes, team-wide**: give a **yellow or red** strike to **any** member, or
   remove either colour (not vertical-scoped, unlike a domain head, who can give
   yellow only).
-- **Deactivate ("kick") a team member** (`Portal Admin` → Remove from team)
+- **The Admin page has three tabs** so you only see one group at a time:
+  **Team** (the roster with phone, verticals, strikes and an On work / Out of
+  work switch, plus strikes and removal), **Committees**, and **Setup** (vertical
+  heads, CSV import and the point scheme, each collapsed until opened).
+- **Deactivate ("kick") a team member** (`Portal Admin` → Team → Strikes and removal)
   — this is a **deactivation, not a delete**: their point/strike/task
   history is kept, and it's reversible. Use this for someone leaving the
   team or a serious reliability problem, not as a substitute for a strike.
-- **Team roster (CSV import)** (`Portal Admin` → Team import) — bulk
+- **Team roster (CSV import)** (`Portal Admin` → Setup → Import team) — bulk
   add/update members: name, email, vertical, secondaryVertical, year, skills,
   campus, phone, active. Re-importing updates existing people without
   resetting anyone's points or strikes, so it's safe to re-run after every
@@ -198,11 +214,12 @@ Everything above, plus:
 - **Committees** (`Portal Admin` → Committees) — add or update a requesting
   body (name, login email, acronym, type, campus) without needing anyone
   to touch code or the database directly.
-- **Vertical heads** (`Portal Admin` → Vertical heads) — appoint one head
+- **Vertical heads** (`Portal Admin` → Setup → Vertical heads) — appoint one head
   per vertical; appointing someone new automatically replaces whoever held
   it before.
-- **Availability** (`Portal Admin` → Availability) — mark anyone out of
-  work / back on work; see §Media team members above for what this does.
+- **Availability** (`Portal Admin` → Team, the Status button on each row) — mark
+  anyone out of work / back on work directly, with no request needed; see
+  §Media team members above for what this does.
 - **`Dashboard`** — fairness/usage view: active members, total points,
   on-time completion rate, average turnaround, a leaderboard, a by-vertical
   breakdown, requests-by-status. Filterable by time window, campus, year,
@@ -215,7 +232,7 @@ Everything above, plus:
 
 Everything above, plus:
 
-- **Point scheme** (`Portal Admin` → Points) — the only role that can
+- **Point scheme** (`Portal Admin` → Setup → Point scheme) — the only role that can
   change the point values themselves (base points per task type, the
   timing bonus/penalty curve). Changing this affects all
   *future* completions; it doesn't retroactively re-score past work.

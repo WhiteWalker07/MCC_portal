@@ -46,6 +46,7 @@ from core.models import Task, TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
 
+from . import leave as leave_sweep
 from .assign import Choice, choose_member, choose_supervisor
 from .confirm import confirm_request
 from .notify import award_points
@@ -721,6 +722,14 @@ def run_deadline_check() -> dict:
     """
     settings = get_settings()
     now = timezone.now()
+
+    # Approved Out-of-work leaves start and end by date; ride the same hourly run
+    # so no extra scheduled task is needed. Isolated so it can never stop the
+    # deadline sweep below.
+    try:
+        leave_sweep.run_leave_sweep()
+    except Exception as exc:
+        logger.error("leave sweep failed: %s", exc)
 
     overdue = list(
         Task.objects.filter(status=TaskStatus.CONFIRMED, deadline__lt=now, struck=False)

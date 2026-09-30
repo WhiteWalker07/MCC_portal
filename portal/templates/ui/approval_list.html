@@ -17,8 +17,41 @@
         </li>
       {% endfor %}
     </ul>
-  {% else %}
+  {% elif not leaves %}
     <p class="muted">Nothing awaiting approval.</p>
+  {% else %}
+    <p class="muted">No requests waiting.</p>
   {% endif %}
 </section>
+
+{% if leaves %}
+<section class="card stack">
+  <h2 class="h2">Out-of-work requests</h2>
+  <p class="muted">Approving does not move anyone's tasks. Reassign any that fall in the dates from Assignments.</p>
+  {% for item in leaves %}
+    <div class="stack subevent-row">
+      <div>
+        <strong>{{ item.leave.member.name }}</strong>
+        <span class="muted">· {{ item.leave.member.vertical_label|default:"no vertical" }}</span><br />
+        {{ item.leave.start_date|date:"D j M" }} – {{ item.leave.end_date|date:"D j M Y" }}
+      </div>
+      <p>{{ item.leave.reason }}</p>
+      <div class="muted">
+        {% if item.tasks %}
+          Open tasks ({{ item.tasks|length }}):
+          {% for t in item.tasks %}{{ t.ref_code }} {{ t.task }}{% if t.deadline %} (due {{ t.deadline|date:"j M" }}){% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}
+        {% else %}
+          No open tasks.
+        {% endif %}
+      </div>
+      <form method="post" action="{% url 'leave-decide' item.leave.pk %}" class="row">
+        {% csrf_token %}
+        <input class="input" type="text" name="note" placeholder="Note to them (optional)" />
+        <button type="submit" name="decision" value="approve" class="btn btn--sm btn--primary">Approve</button>
+        <button type="submit" name="decision" value="decline" class="btn btn--sm btn--danger">Decline</button>
+      </form>
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
 {% endblock %}

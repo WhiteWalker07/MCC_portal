@@ -95,6 +95,31 @@ class Availability:
     CHOICES = [(AVAILABLE, "On work"), (OUT, "Out of work")]
 
 
+class LeaveStatus:
+    """
+    A member's request to go Out of work (docs: USER-GUIDE). PENDING until the
+    POC/Admin decides; APPROVED means it will start (or has started) on its start
+    date; ENDED once the member is back on work, by the end date or by hand.
+    """
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    ENDED = "ended"
+
+    CHOICES = [
+        (PENDING, "Waiting for approval"),
+        (APPROVED, "Approved"),
+        (REJECTED, "Declined"),
+        (CANCELLED, "Withdrawn"),
+        (ENDED, "Ended"),
+    ]
+
+    #: A member may have only one request in these states at a time.
+    OPEN = frozenset({PENDING, APPROVED})
+
+
 #: The four production verticals. A member has a primary and an optional
 #: secondary one; a domain head's scope covers members in either. "" = unscoped.
 VERTICALS = ["Photography", "Videography", "Graphic Designs", "Content Writing"]
@@ -121,7 +146,8 @@ def normalise_vertical(text: str) -> str:
     return _VERTICAL_ALIASES.get(cleaned.lower(), cleaned)
 
 
-CAMPUSES = ["MBA Campus", "BMS Campus"]
+CAMPUS_MBA = "MBA Campus"
+CAMPUSES = [CAMPUS_MBA, "BMS Campus"]
 
 COMMITTEE_TYPES = ["Club", "Committee", "SIG", "Office"]
 

@@ -15,12 +15,15 @@ memory and any bookmarked links map across predictably:
 
 from django.urls import path
 
-from . import meeting_views, views
+from . import leave_views, meeting_views, views
 
 urlpatterns = [
     path("", views.home, name="home"),
     path("signed-out/", views.signed_out, name="signed-out"),
     path("profile/", views.profile, name="profile"),
+    path("profile/out-of-work/", leave_views.leave_request, name="leave-request"),
+    path("profile/out-of-work/<int:pk>/withdraw/", leave_views.leave_cancel, name="leave-cancel"),
+    path("profile/back-on-work/", leave_views.leave_return, name="leave-return"),
 
     path("requests/new/", views.request_new, name="request-new"),
     path("requests/", views.request_list, name="request-list"),
@@ -52,6 +55,7 @@ urlpatterns = [
     path("approvals/", views.approval_list, name="approval-list"),
     path("approvals/<int:pk>/", views.approval_detail, name="approval-detail"),
     path("approvals/<int:pk>/decide/", views.approval_decide, name="approval-decide"),
+    path("approvals/out-of-work/<int:pk>/", leave_views.leave_decide, name="leave-decide"),
 
     path("meetings/", meeting_views.meeting_list, name="meeting-list"),
     path("meetings/new/", meeting_views.meeting_new, name="meeting-new"),

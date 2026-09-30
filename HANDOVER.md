@@ -227,7 +227,7 @@ as an anti-takeover safeguard. Don't rename it to match anyone's real email.
   choice, keeps history).
 - **Models**: `portal/core/models.py` — `PortalSettings`, `PointsScheme`,
   `TaskType`, `PostSlot`, `Platform`, `Committee`, `TeamMember`, `Request`,
-  `SubEvent`, `Task`, `Meeting`, `MeetingInvite`, `ActivityLog`.
+  `SubEvent`, `Task`, `Meeting`, `MeetingInvite`, `LeaveRequest`, `ActivityLog`.
 - **Cross-vertical manual reassignment**: any first-year can be manually
   assigned from any vertical (auto-assignment still skill-matches) —
   `engine/assign.py`'s `eligible_members(require_skill=False)`.
@@ -274,6 +274,24 @@ adds the Task Supervisor task type, stops Vetters being added by hand). In order
 This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
+
+### Third batch (Out-of-work requests, tabbed Admin, MBA 1st-year meeting option)
+Migration `0005` is schema-only (`LeaveRequest`). Same deploy order; no seed step.
+- **Out of work** (`engine/leave.py`, `ui/leave_views.py`): a team member asks from
+  their Profile (reason + from/to dates); the POC/Admin approves or declines on
+  the Approvals page (email to the POC on request, to the member on decision). It
+  changes nothing until approved *and* the start date arrives; open tasks are
+  never moved (the POC sees them and reassigns by hand). `run_leave_sweep` starts
+  and ends leaves by date and runs from the hourly `run_deadline_check` (no new
+  scheduled task); the last day is inclusive, so they return the day after.
+  Members can withdraw a pending/not-yet-started request or press "I'm back". The
+  Admin roster switch still marks anyone out directly. All availability changes go
+  through `switch_availability` (day banking + audit log).
+- **Admin page** is tabs (Team | Committees | Setup); `ADMIN_TABS` in `ui/views.py`.
+  The current tab is kept in the session so existing redirects return to it. Tests
+  that read the page must request `?tab=...`.
+- **Meetings**: extra invite mode "MBA 1st year" = active, on-work members with
+  `year == 1` and `campus == CAMPUS_MBA`.
 
 ### Second batch (meetings, timed coordinator, paired editors)
 Migration `0004` is schema-only (adds `Task.paired_task`, `Meeting`,

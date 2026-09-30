@@ -256,6 +256,45 @@ ul.plain {
   margin: 0;
 }
 
+/* Admin: one group at a time (Team | Committees | Setup), no JavaScript. */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.tab {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  text-decoration: none;
+  border: 1px solid var(--color-border-soft);
+}
+
+.tab--active {
+  color: var(--color-text);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-soft-border);
+}
+
+/* A collapsed section: <details class="fold"><summary>…</summary>…</details>. */
+details.fold {
+  border: 1px solid var(--color-border-soft);
+  border-radius: 10px;
+  padding: var(--space-3) var(--space-4);
+}
+
+details.fold > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+details.fold[open] > summary {
+  margin-bottom: var(--space-3);
+}
+
 .stack > * + * {
   margin-top: var(--space-4);
 }

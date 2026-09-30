@@ -21,6 +21,7 @@ from django.contrib import admin
 from .models import (
     ActivityLog,
     Committee,
+    LeaveRequest,
     Meeting,
     MeetingInvite,
     PointsScheme,
@@ -132,6 +133,14 @@ class TaskAdmin(admin.ModelAdmin):
     search_fields = ("ref_code", "member", "email")
     readonly_fields = ("points_awarded", "timing_applied", "struck")
     raw_id_fields = ("paired_task",)
+
+
+@admin.register(LeaveRequest)
+class LeaveRequestAdmin(admin.ModelAdmin):
+    list_display = ("member", "start_date", "end_date", "status", "decided_by", "requested_at")
+    list_filter = ("status",)
+    search_fields = ("member__name", "member__email", "reason")
+    readonly_fields = ("started_at", "ended_at")
 
 
 class MeetingInviteInline(admin.TabularInline):

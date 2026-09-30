@@ -303,6 +303,16 @@ class ExtraShooterTests(TestCase):
         self.assertEqual(editor.paired_task_id, photographer.pk)
         self.assertEqual(editor.deadline, self.request.event_end + timedelta(hours=24))
 
+    def test_added_tasks_are_worth_the_scheme_points_not_the_old_per_type_numbers(self):
+        # The fixture's Photographer/Photo Editor types say 5 and 3; the scheme says 10.
+        self.add("Photographer", RAVI)
+        self.assertEqual(self.request.tasks.get(task="Photographer").points, 10)
+        self.assertEqual(self.request.tasks.get(task="Photo Editor").points, 10)
+
+    def test_a_hand_added_coordinator_is_worth_twenty(self):
+        self.add("Event Coordinator", RAVI)
+        self.assertEqual(self.request.tasks.get(task="Event Coordinator").points, 20)
+
     def test_the_new_shooter_is_told_about_both_tasks(self):
         self.add("Photographer", RAVI)
         assigned = [m for m in mail.outbox if m.subject.startswith("[Assigned]") and RAVI in m.to]

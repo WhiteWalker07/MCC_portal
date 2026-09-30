@@ -35,7 +35,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from core.activity import log_activity
-from core.constants import Attendance, Availability
+from core.constants import CAMPUS_MBA, Attendance, Availability
 from core.models import Meeting, MeetingInvite, TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
@@ -43,10 +43,12 @@ from services.calendar import calendar_service
 from .assign import _fairness_key
 
 INVITE_ALL = "all"
+INVITE_MBA_YEAR1 = "mba_year1"
 INVITE_VERTICALS = "verticals"
 INVITE_PEOPLE = "people"
 INVITE_MODES = [
     (INVITE_ALL, "The whole team"),
+    (INVITE_MBA_YEAR1, "MBA 1st year"),
     (INVITE_VERTICALS, "Chosen verticals"),
     (INVITE_PEOPLE, "Chosen people"),
 ]
@@ -75,11 +77,15 @@ def invitable_members():
 def resolve_invitees(mode: str, verticals=(), emails=()) -> list[TeamMember]:
     """
     The people a meeting is being called for. `mode` is one of the `INVITE_*`
-    constants: everyone invitable, invitable members whose primary *or* secondary
-    vertical is one of `verticals`, or the invitable members among `emails`.
+    constants: everyone invitable, the first-years on the MBA campus, invitable
+    members whose primary *or* secondary vertical is one of `verticals`, or the
+    invitable members among `emails`.
     Anyone out of work is dropped whatever the mode.
     """
     pool = invitable_members()
+    if mode == INVITE_MBA_YEAR1:
+        # A one-click group: first-years on the MBA campus.
+        return [m for m in pool if m.year == 1 and m.campus == CAMPUS_MBA]
     if mode == INVITE_VERTICALS:
         wanted = set(verticals)
         return [m for m in pool if m.vertical in wanted or m.secondary_vertical in wanted]
