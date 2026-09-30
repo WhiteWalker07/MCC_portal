@@ -17,6 +17,27 @@
   <h2 class="h2">Team roster</h2>
   <p class="muted">Phone numbers are what clubs see once someone is assigned. Verticals set here last only until the next
     deploy, which re-applies <code>core/seed_data.py</code>, so change them there too.</p>
+
+  <form method="get" class="filters">
+    <input type="hidden" name="tab" value="team" />
+    <select class="input filter__sel" name="campus">
+      <option value="all" {% if filters.campus == "all" %}selected{% endif %}>All campuses</option>
+      {% for c in campuses %}<option value="{{ c }}" {% if filters.campus == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+    <select class="input filter__sel" name="year">
+      <option value="all" {% if filters.year == "all" %}selected{% endif %}>All years</option>
+      <option value="1" {% if filters.year == "1" %}selected{% endif %}>Year 1</option>
+      <option value="2" {% if filters.year == "2" %}selected{% endif %}>Year 2</option>
+    </select>
+    <select class="input filter__sel" name="vertical">
+      <option value="all" {% if filters.vertical == "all" %}selected{% endif %}>All verticals</option>
+      {% for v in verticals %}<option value="{{ v }}" {% if filters.vertical == v %}selected{% endif %}>{{ v }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn btn--sm">Apply</button>
+    {% if filters_active %}<a class="btn btn--sm" href="{% url 'portal-admin' %}?tab=team">Clear</a>{% endif %}
+  </form>
+  <p class="muted">Showing {{ members|length }} of {{ total_members }} member{{ total_members|pluralize }}{% if filters_active %} (filtered){% endif %}. A vertical filter matches primary or secondary.</p>
+
   {% if members %}
     <div style="overflow-x:auto">
       <table class="roster">
@@ -28,6 +49,7 @@
               <td>
                 <form method="post" action="{% url 'set-member-verticals' %}" class="row">
                   {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ here }}" />
                   <input type="hidden" name="member_email" value="{{ m.email }}" />
                   <select name="vertical" class="input">
                     <option value="">—</option>
@@ -43,6 +65,7 @@
               <td>
                 <form method="post" action="{% url 'set-member-phone' %}" class="row">
                   {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ here }}" />
                   <input type="hidden" name="member_email" value="{{ m.email }}" />
                   <input type="text" name="phone" value="{{ m.phone }}" class="input" placeholder="e.g. 98765 43210" />
                   <button type="submit" class="btn btn--sm">Save</button>
@@ -52,6 +75,7 @@
               <td>
                 <form method="post" action="{% url 'set-availability' %}">
                   {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ here }}" />
                   <input type="hidden" name="member_email" value="{{ m.email }}" />
                   <input type="hidden" name="availability" value="{% if m.availability == 'out' %}available{% else %}out{% endif %}" />
                   <button type="submit" class="btn btn--sm{% if m.availability == 'out' %} btn--primary{% endif %}"
@@ -65,6 +89,8 @@
         </tbody>
       </table>
     </div>
+  {% elif filters_active %}
+    <p class="muted">No members match these filters.</p>
   {% else %}
     <p class="muted">No team members yet.</p>
   {% endif %}

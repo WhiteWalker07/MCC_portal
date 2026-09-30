@@ -209,7 +209,8 @@ Everything above, plus:
   yellow only).
 - **The Admin page has three tabs** so you only see one group at a time:
   **Team** (the roster with phone, verticals, strikes and an On work / Out of
-  work switch, plus strikes and removal), **Committees**, and **Setup** (vertical
+  work switch, plus strikes and removal; filter the roster by **campus, year and
+  vertical**, the same as on the Dashboard, and saving a row keeps your filter), **Committees**, and **Setup** (vertical
   heads, CSV import and the point scheme, each collapsed until opened).
 - **Deactivate ("kick") a team member** (`Portal Admin` → Team → Strikes and removal)
   — this is a **deactivation, not a delete**: their point/strike/task
