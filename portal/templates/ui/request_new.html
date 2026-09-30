@@ -115,8 +115,8 @@
     </label>
 
     <label class="field">
-      <span class="field__label">Requester</span>
-      <input class="input" type="text" name="requester" value="{{ form.requester.value|default:'' }}" autocomplete="off" />
+      <span class="field__label">{% if is_committee %}Committee{% else %}Requester{% endif %}</span>
+      <input class="input" type="text" name="requester" value="{{ form.requester.value|default:'' }}" autocomplete="off"{% if is_committee %} readonly aria-readonly="true"{% endif %} />
     </label>
 
     <label class="field">
@@ -158,6 +158,17 @@
         var n = parseInt(total.value, 10);
         rows.insertAdjacentHTML("beforeend", template.innerHTML.replace(/__prefix__/g, n));
         total.value = n + 1;
+      });
+    }
+    // Delete a row: clear it and hide it. It is not removed from the page, so the
+    // row numbers stay consecutive and the empty row is simply skipped on submit.
+    if (rows) {
+      rows.addEventListener("click", function (event) {
+        var button = event.target.closest(".js-remove-sub");
+        if (!button) return;
+        var row = button.closest(".subevent-row");
+        row.querySelectorAll("input").forEach(function (field) { field.value = ""; });
+        row.hidden = true;
       });
     }
   })();

@@ -91,9 +91,18 @@ class RequestForm(forms.ModelForm):
             "content_links": "Where the material lives — Drive, Dropbox, a folder link.",
         }
 
-    def __init__(self, *args, is_committee: bool, available_roles, available_platforms, **kwargs):
+    def __init__(
+        self, *args, is_committee: bool, available_roles, available_platforms, committee_name: str = "", **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.is_committee = is_committee
+
+        # A committee raises requests as itself: the requester is its name and can't
+        # be edited. `disabled` means Django ignores whatever the browser sends and
+        # uses this value, so a hand-edited form can't change it either.
+        if is_committee and committee_name:
+            self.fields["requester"].disabled = True
+            self.initial["requester"] = committee_name
 
         type_choices = list(RequestType.CHOICES) if is_committee else [
             (RequestType.POST, "Post")

@@ -10,4 +10,5 @@
   <label class="field"><span class="field__label">Notes</span>{{ sub.notes }}</label>
   {% for field in sub %}{% for error in field.errors %}<p class="error">{{ error }}</p>{% endfor %}{% endfor %}
   {% for error in sub.non_field_errors %}<p class="error">{{ error }}</p>{% endfor %}
+  <div class="row"><button type="button" class="btn btn--danger btn--sm js-remove-sub">Delete this sub-event</button></div>
 </div>

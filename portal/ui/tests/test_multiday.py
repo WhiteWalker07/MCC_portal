@@ -84,6 +84,7 @@ class CreationFormTests(Base):
         self.assertContains(page, 'id="add-sub"')
         self.assertContains(page, 'id="sub-template"')
         self.assertContains(page, "__prefix__")  # the row the + button clones
+        self.assertContains(page, "js-remove-sub")  # each row has a Delete button
 
     def test_single_day_is_the_default(self):
         self.client.force_login(self.club)
@@ -174,6 +175,17 @@ class CreationFormTests(Base):
         self.submit(self.multi_body(**sub_rows(*rows)))
         self.assertEqual(SubEvent.objects.count(), 5)
 
+    def test_a_deleted_row_is_just_an_empty_row_and_is_skipped(self):
+        # The page's Delete button clears a row and hides it, so what the server sees
+        # is a blank row between filled ones: it must not block or be saved.
+        rows = [
+            {"name": "Keep 1", "start": fmt(self.at10), "end": fmt(self.at10 + timedelta(hours=1))},
+            {},  # the deleted one
+            {"name": "Keep 2", "start": fmt(self.at10 + timedelta(hours=3)), "end": fmt(self.at10 + timedelta(hours=4))},
+        ]
+        self.submit(self.multi_body(**sub_rows(*rows)))
+        self.assertEqual(list(SubEvent.objects.order_by("start").values_list("name", flat=True)), ["Keep 1", "Keep 2"])
+
     def test_a_sub_event_after_the_last_day_is_refused(self):
         late = self.at10 + timedelta(days=5)
         response = self.submit(
@@ -181,6 +193,50 @@ class CreationFormTests(Base):
         )
         self.assertContains(response, "must fall within the event")
         self.assertEqual(Request.objects.count(), 0)
+
+
+class RequesterLockTests(Base):
+    """A committee raises requests as itself: its name can't be edited."""
+
+    def test_the_committee_name_is_shown_and_read_only(self):
+        self.client.force_login(self.club)
+        page = self.client.get(reverse("request-new"))
+        html = page.content.decode()
+        start = html.index('name="requester"')
+        tag = html[html.rindex("<input", 0, start): html.index("/>", start)]
+        self.assertIn('value="Marketing"', tag)
+        self.assertIn("readonly", tag)
+
+    def test_a_changed_name_is_ignored_and_the_committee_name_is_stored(self):
+        self.submit(self.multi_body(requester="Somebody Else"))
+        self.assertEqual(Request.objects.get().requester, "Marketing")
+
+    def test_a_blank_name_still_ends_up_as_the_committee_name(self):
+        self.submit(self.multi_body(requester=""))
+        self.assertEqual(Request.objects.get().requester, "Marketing")
+
+    def test_it_is_locked_for_a_post_raised_by_a_committee_too(self):
+        self.client.force_login(self.club)
+        self.client.post(
+            reverse("request-new"),
+            {"type": "Post", "event_name": "Launch", "platforms": ["Instagram"],
+             "content_links": "http://example.invalid/x", "requester": "Somebody Else"},
+        )
+        self.assertEqual(Request.objects.get(event_name="Launch").requester, "Marketing")
+
+    def test_an_ordinary_account_can_still_type_its_own_name(self):
+        someone = User.objects.create_user("someone", email="someone@iimsirmaur.ac.in")
+        self.client.force_login(someone)
+        page = self.client.get(reverse("request-new"))
+        html = page.content.decode()
+        start = html.index('name="requester"')
+        self.assertNotIn("readonly", html[html.rindex("<input", 0, start): html.index("/>", start)])
+        self.client.post(
+            reverse("request-new"),
+            {"type": "Post", "event_name": "Hello", "platforms": ["Instagram"],
+             "content_links": "http://example.invalid/x", "requester": "Priya"},
+        )
+        self.assertEqual(Request.objects.get(event_name="Hello").requester, "Priya")
 
 
 class MultiDayBehaviourTests(Base):

@@ -184,6 +184,7 @@ def request_new(request):
             is_committee=is_committee,
             available_roles=available_roles,
             available_platforms=available_platforms,
+            committee_name=roles.committee.name if is_committee else "",
         )
         form_ok = form.is_valid()
         # Only a multi-day Coverage event has a schedule of sub-events when it is
@@ -228,6 +229,7 @@ def request_new(request):
             is_committee=is_committee,
             available_roles=available_roles,
             available_platforms=available_platforms,
+            committee_name=roles.committee.name if is_committee else "",
             initial=initial,
         )
         subevents = SubEventFormSet(prefix="sub", instance=Request())
