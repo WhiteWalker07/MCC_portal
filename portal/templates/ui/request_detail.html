@@ -26,7 +26,12 @@
     <div><dt>Type</dt><dd>{{ request_obj.type }}</dd></div>
     {% if request_obj.campus %}<div><dt>Campus</dt><dd>{{ request_obj.campus }}</dd></div>{% endif %}
     {% if request_obj.type == "Coverage" %}
-      {% if can_edit_schedule %}
+      {% if request_obj.is_multiday %}
+        <div>
+          <dt>Dates</dt>
+          <dd>{{ request_obj.event_start|date:"D d M" }} – {{ request_obj.event_end|date:"D d M Y" }} <span class="muted">(multi-day)</span></dd>
+        </div>
+      {% elif can_edit_schedule %}
         <div>
           <dt>Time</dt>
           <dd>
@@ -45,6 +50,9 @@
         <div><dt>Start</dt><dd>{{ request_obj.event_start|date:"d M Y, H:i"|default:"—" }}</dd></div>
         <div><dt>End</dt><dd>{{ request_obj.event_end|date:"d M Y, H:i"|default:"—" }}</dd></div>
       {% endif %}
+      {% if request_obj.is_multiday %}
+      <div><dt>Venue</dt><dd class="muted">Each sub-event has its own — see below</dd></div>
+      {% else %}
       <div>
         <dt>Venue</dt>
         <dd>
@@ -60,6 +68,7 @@
           {% endif %}
         </dd>
       </div>
+      {% endif %}
       <div><dt>Roles</dt><dd>{{ request_obj.roles_needed|join:", "|default:"—" }}</dd></div>
       {% if request_obj.supervisor_email and portal_roles.email != request_obj.contact_email|lower %}
         <div><dt>Task Supervisor</dt><dd class="mono">{{ request_obj.supervisor_email }}</dd></div>
@@ -72,8 +81,11 @@
     <div><dt>Created</dt><dd>{{ request_obj.created_at|date:"d M Y, H:i" }}</dd></div>
   </dl>
 
-  {% if request_obj.type == "Coverage" and subevent_rows or can_edit_schedule %}
+  {% if request_obj.type == "Coverage" and subevent_rows or can_amend_subevents %}
     <h2 class="h2">Sub-events</h2>
+    {% if can_amend_subevents %}
+      <p class="muted">Each sub-event can be added, changed or removed until 48 hours before it starts.{% if request_obj.is_multiday %} It must fall within the event's dates.{% endif %}</p>
+    {% endif %}
     {% if subevent_rows %}
       <div class="stack">
         {% for row in subevent_rows %}
@@ -117,7 +129,7 @@
         </div>
         <label class="field"><span class="field__label">Notes</span>{{ subevent_add_form.notes }}</label>
         <div class="row"><button type="submit" class="btn btn--primary btn--sm">Add sub-event</button></div>
-        <p class="note">// the Event Coordinator and POC are emailed about any change</p>
+        <p class="note">// the Event Coordinator and POC are emailed about any change; it must start more than 48 hours from now</p>
       </form>
     {% endif %}
   {% endif %}

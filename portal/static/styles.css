@@ -295,6 +295,12 @@ details.fold[open] > summary {
   margin-bottom: var(--space-3);
 }
 
+/* A field that is shown but can't be edited (e.g. a committee's own name). */
+.input[readonly] {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .stack > * + * {
   margin-top: var(--space-4);
 }

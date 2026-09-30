@@ -15,7 +15,7 @@
               <span class="list__title">{{ r.event_name|default:"(untitled)" }}</span>
               <span class="list__sub">
                 {{ r.ref_code|default:"ID pending" }} · {{ r.type }}
-                {% if r.type == "Coverage" and r.event_start %} · {{ r.event_start|date:"d M Y, H:i" }}{% endif %}
+                {% if r.type == "Coverage" and r.event_start %} · {% if r.is_multiday %}{{ r.event_start|date:"d M" }} – {{ r.event_end|date:"d M Y" }}{% else %}{{ r.event_start|date:"d M Y, H:i" }}{% endif %}{% endif %}
               </span>
             </span>
             <span class="status" data-status="{{ r.status }}">{{ r.status }}</span>

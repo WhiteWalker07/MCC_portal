@@ -216,11 +216,26 @@ as an anti-takeover safeguard. Don't rename it to match anyone's real email.
     Heads give yellow only; POC/Admin either. The deadline sweep no longer
     strikes (tasks still go LATE + emailed) and strikes never affect
     assignment.
-  - **Clubs can amend a Coverage request until 24h before it starts**: event
-    *time* (never date) and sub-events (`SubEvent`). See
-    `engine/event_changes.py`. Existing calendar holds can't be moved (no event
-    id is stored), so a time change adds new holds and tells people the old
-    entry is stale.
+  - **Clubs can amend a Coverage request**: a single-day event's *time* (never
+    date) until 24h before it starts (`can_change_event_time`); **sub-events**
+    each have their own cutoff, **48h before that sub-event** (`SUBEVENT_CUTOFF_HOURS`,
+    `roles.subevent_is_open`, enforced in `SubEventForm(enforce_lead=True)` and the
+    add/edit/delete views — the new start is checked too, so one can't be dragged
+    into the last 48h). See `engine/event_changes.py`. Existing calendar holds
+    can't be moved (no event id is stored), so a time change adds new holds and
+    tells people the old entry is stale.
+  - **Single-day vs multi-day** (`Request.is_multiday`, migration `0007`): the
+    request form has a toggle. Single-day = one venue + one start/end window,
+    no sub-events at creation (they can be added later). Multi-day = only a first
+    and last *date*: `RequestForm._clean_multiday` turns them into 00:00 on the
+    first day to `MULTIDAY_END_TIME` (23:59) on the last, clears the venue, and its
+    sub-events (the page's "+" button, plain JS cloning the formset's `empty_form`)
+    must fall inside the dates (`SubEventForm(bounds=...)`). Multi-day events have
+    **no time change, no venue edit, no calendar holds** and no calendar busy-check
+    when staffing (`assign.py`, `assignment.py`, `notify.py` all skip on
+    `is_multiday`; members still get the deadline reminder). Deadlines count from
+    the end of the last day. An old client that posts no `event_kind` is treated as
+    single-day.
 - **Views/forms/URLs**: `portal/ui/views.py`, `ui/forms.py`, `ui/urls.py`.
   Includes newer additions this round: `request_edit_venue`, `issue_strike`,
   `remove_strike`, `remove_from_team` (deactivate, not hard-delete — explicit
@@ -274,6 +289,12 @@ adds the Task Supervisor task type, stops Vetters being added by hand). In order
 This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
+
+### Fourth batch (single-day / multi-day events)
+Migration `0007` is schema-only (`Request.is_multiday`, default False, so every
+existing request stays single-day). Same deploy order; no seed step. The sub-event
+cutoff changed from "24h before the main event" to "48h before each sub-event" for
+**all** Coverage requests, not just multi-day ones.
 
 ### Third batch (Out-of-work requests, tabbed Admin, MBA 1st-year meeting option)
 Migration `0005` is schema-only (`LeaveRequest`). Same deploy order; no seed step.

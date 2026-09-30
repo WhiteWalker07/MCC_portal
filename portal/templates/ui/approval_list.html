@@ -10,7 +10,7 @@
           <a class="list__link" href="{% url 'approval-detail' r.pk %}">
             <span class="list__main">
               <span class="list__title">{{ r.event_name|default:"(untitled)" }}</span>
-              <span class="list__sub">{{ r.ref_code }} · {{ r.type }}{% if r.event_start %} · {{ r.event_start|date:"d M Y, H:i" }}{% endif %}</span>
+              <span class="list__sub">{{ r.ref_code }} · {{ r.type }}{% if r.event_start %} · {% if r.is_multiday %}{{ r.event_start|date:"d M" }} – {{ r.event_end|date:"d M Y" }}{% else %}{{ r.event_start|date:"d M Y, H:i" }}{% endif %}{% endif %}</span>
             </span>
             <span class="status" data-status="{{ r.status }}">{{ r.status }}</span>
           </a>
