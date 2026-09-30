@@ -15,6 +15,7 @@ confirm.py, since auto-acceptance and secretary approval share it.
 from __future__ import annotations
 
 import logging
+import math
 
 from django.db import transaction
 from django.utils import timezone
@@ -29,6 +30,7 @@ from core.config import (
     get_team,
 )
 from core.constants import (
+    DERIVED_EDITOR,
     HOUR,
     RequestStatus,
     RequestType,
@@ -44,11 +46,11 @@ from core.models import Task, TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
 
-from .assign import choose_member, choose_supervisor
+from .assign import Choice, choose_member, choose_supervisor
 from .confirm import confirm_request
 from .notify import award_points
 from .pipeline import build_pipeline
-from .points import final_points
+from .points import final_points, overdue_multiplier
 from .posting import find_next_slot
 from .refcode import allocate_ref_code
 
@@ -110,15 +112,25 @@ def process_new_request(request_obj) -> None:
     tasks_to_create: list[Task] = []
     outcomes: list[tuple[str, TeamMember | None, str]] = []
     open_counts = open_supervision_counts()
+    # Who got each shoot role, so its editing task can go to the same person.
+    shooter_member: dict[str, TeamMember] = {}
 
     for pipeline_task in pipeline:
+        paired = shooter_member.get(pipeline_task.pairs_with) if pipeline_task.pairs_with else None
         if pipeline_task.task == TASK_SUPERVISOR:
             choice = choose_supervisor(request_obj, settings, team, open_counts)
+        elif paired is not None:
+            # Each shooter edits their own work, whether or not they hold the
+            # editing skill. (If the shooter is unfilled there's nobody to reuse
+            # and the editor is auto-picked below like any other task.)
+            choice = Choice(member=paired, reason="")
         else:
             choice = choose_member(
                 pipeline_task, request_obj, settings, team, already_assigned, calendar
             )
         member = choice.member
+        if member is not None and pipeline_task.task in DERIVED_EDITOR:
+            shooter_member[pipeline_task.task] = member
         if member is not None:
             if pipeline_task.task == TASK_SUPERVISOR:
                 supervisor_email = member.email
@@ -159,6 +171,7 @@ def process_new_request(request_obj) -> None:
             task.coordinator_email = coordinator_email
         if tasks_to_create:
             Task.objects.bulk_create(tasks_to_create)
+            _link_paired_editors(request_obj)
         request_obj.coordinator_email = coordinator_email
         request_obj.supervisor_email = supervisor_email
         request_obj.save(update_fields=["coordinator_email", "supervisor_email"])
@@ -198,6 +211,20 @@ def process_new_request(request_obj) -> None:
         return
 
     confirm_request(request_obj)
+
+
+def _link_paired_editors(request_obj) -> None:
+    """
+    Point each editing task at the shooter task it edits, so the editor follows
+    the shooter when the shooter is reassigned. Read back from the database
+    rather than relying on `bulk_create` to hand primary keys back.
+    """
+    by_name = {t.task: t for t in request_obj.tasks.all()}
+    for shooter_name, editor_name in DERIVED_EDITOR.items():
+        shooter, editor = by_name.get(shooter_name), by_name.get(editor_name)
+        if shooter and editor and editor.paired_task_id != shooter.pk:
+            editor.paired_task = shooter
+            editor.save(update_fields=["paired_task"])
 
 
 def _requires_approval(request_obj, settings) -> bool:
@@ -447,9 +474,9 @@ def _award_completion_points(task, request_obj) -> None:
 
     Guarded two ways: `points_awarded` makes this once-only (idempotent
     against a retry after a partial failure), and an unassigned task has
-    nobody to credit. The Event Coordinator role isn't a timed deliverable —
-    it coordinates others rather than producing one — so it gets its flat
-    base points with no early/late modifier.
+    nobody to credit. The Event Coordinator coordinates others rather than
+    producing a deliverable, so it earns no early bonus; it does have a
+    deadline of its own, though, and loses points the later it finishes past it.
     """
     if task.points_awarded or not task.email or task.task == TASK_SUPERVISOR:
         return
@@ -458,7 +485,15 @@ def _award_completion_points(task, request_obj) -> None:
     turnaround_hours: float | None = None
 
     if task.task == TASK_EVENT_COORDINATOR:
-        final = base
+        # No early bonus, but the coordinator is timed against its own deadline:
+        # finishing after it costs points on the same late curve as a deliverable,
+        # counted from that deadline.
+        completed_at = task.completed_at or timezone.now()
+        if task.deadline and completed_at > task.deadline:
+            turnaround_hours = (completed_at - task.deadline).total_seconds() / HOUR
+            final = math.floor(base * overdue_multiplier(turnaround_hours, get_points_scheme()) + 0.5)
+        else:
+            final = base
     else:
         reference = task.event_end if task.req_type == RequestType.COVERAGE else task.created_at
         if reference is None:
@@ -478,7 +513,8 @@ def _award_completion_points(task, request_obj) -> None:
 
     detail = f"{task.task}: +{final} pts"
     if turnaround_hours is not None:
-        detail += f" (turnaround {round(turnaround_hours)}h)"
+        label = "overdue" if task.task == TASK_EVENT_COORDINATOR else "turnaround"
+        detail += f" ({label} {round(turnaround_hours)}h)"
     log_activity(
         "points-awarded",
         request_obj=request_obj,
@@ -688,8 +724,9 @@ def run_deadline_check() -> dict:
 
     overdue = list(
         Task.objects.filter(status=TaskStatus.CONFIRMED, deadline__lt=now, struck=False)
-        # Neither the coordinator nor the supervisor is a deliverable.
-        .exclude(task__in=[TASK_EVENT_COORDINATOR, TASK_SUPERVISOR])
+        # The supervisor has no deadline. The coordinator does (12h after the
+        # request's last individual task), so it's swept like any other task.
+        .exclude(task=TASK_SUPERVISOR)
         .select_related("request")
     )
 

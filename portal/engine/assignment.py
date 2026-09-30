@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from core.activity import log_activity
 from core.config import get_points_scheme
-from core.constants import ROSTER_ROLES, TASK_SUPERVISOR, RequestStatus, TaskStatus
+from core.constants import DERIVED_EDITOR, ROSTER_ROLES, TASK_SUPERVISOR, RequestStatus, TaskStatus
 from core.models import TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
@@ -38,6 +38,7 @@ def override_proposed_assignee(task, member) -> None:
     POC/Secretary's Task Supervisor pick at approval time
     (ui/views.py's approval_decide).
     """
+    old_email = (task.email or "").lower()
     task.member = member.name
     task.email = member.email
     task.phone = member.phone or ""
@@ -54,6 +55,24 @@ def override_proposed_assignee(task, member) -> None:
         request_obj = task.request
         request_obj.supervisor_email = member.email
         request_obj.save(update_fields=["supervisor_email"])
+
+    for editor in _editors_following(task, old_email, member):
+        override_proposed_assignee(editor, member)
+
+
+def _editors_following(shooter, old_email: str, new_member):
+    """
+    The editing tasks that should move with `shooter` to `new_member`: the ones
+    paired to it that are still held by whoever held the shooter, and not done.
+    An editor someone deliberately gave to a different person stays put.
+    """
+    if shooter.task not in DERIVED_EDITOR or (new_member.email or "").lower() == old_email:
+        return []
+    return [
+        editor
+        for editor in shooter.paired_editors.all()
+        if editor.status != TaskStatus.DONE and (editor.email or "").lower() == old_email
+    ]
 
 
 @dataclass(frozen=True)
@@ -118,6 +137,9 @@ def perform_swap(task, new_member, request_obj) -> None:
     only difference is whether there are points to claw back.
     """
     old_email = (task.email or "").lower()
+    # Read before the swap, while the editors are still recognisably the
+    # previous holder's.
+    followers = _editors_following(task, old_email, new_member)
     _commit_swap(task, new_member, request_obj, old_email)
 
     notify_assignee(task)
@@ -152,6 +174,10 @@ def perform_swap(task, new_member, request_obj) -> None:
         member=new_member.email,
         detail=f"{task.task}: {old_email or 'unfilled'} -> {new_member.email}",
     )
+
+    # Each shooter edits their own work, so the editing task goes with them.
+    for editor in followers:
+        perform_swap(editor, new_member, request_obj)
 
 
 @transaction.atomic

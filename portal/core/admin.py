@@ -21,6 +21,8 @@ from django.contrib import admin
 from .models import (
     ActivityLog,
     Committee,
+    Meeting,
+    MeetingInvite,
     PointsScheme,
     PortalSettings,
     Platform,
@@ -129,6 +131,23 @@ class TaskAdmin(admin.ModelAdmin):
     list_filter = ("status", "task", "vertical", "req_type")
     search_fields = ("ref_code", "member", "email")
     readonly_fields = ("points_awarded", "timing_applied", "struck")
+    raw_id_fields = ("paired_task",)
+
+
+class MeetingInviteInline(admin.TabularInline):
+    model = MeetingInvite
+    extra = 0
+    fields = ("member", "attendance", "strike_given", "marked_by", "marked_at")
+    readonly_fields = ("strike_given",)
+
+
+@admin.register(Meeting)
+class MeetingAdmin(admin.ModelAdmin):
+    list_display = ("title", "start", "venue", "called_by", "mom_email", "cancelled_at")
+    list_filter = ("cancelled_at",)
+    search_fields = ("title", "called_by", "mom_email")
+    date_hierarchy = "start"
+    inlines = [MeetingInviteInline]
 
 
 @admin.register(ActivityLog)

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Meetings — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <div class="view-head">
+    <h1>Meetings</h1>
+    {% if can_call %}<a class="btn btn--primary" href="{% url 'meeting-new' %}">Schedule a meeting</a>{% endif %}
+  </div>
+  <p class="muted">Team meetings you called or were invited to.</p>
+
+  <h2 class="h2">Upcoming</h2>
+  {% if upcoming %}
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Meeting</th><th>When</th><th>Venue</th><th>Invited</th></tr></thead>
+        <tbody>
+          {% for m in upcoming %}
+            <tr>
+              <td><a href="{% url 'meeting-detail' m.pk %}">{{ m.title }}</a></td>
+              <td>{{ m.start|date:"D j M, H:i" }} – {{ m.end|date:"H:i" }}</td>
+              <td>{{ m.venue|default:"To be confirmed" }}</td>
+              <td>{{ m.invites.all|length }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">Nothing coming up.</p>
+  {% endif %}
+
+  {% if past %}
+    <h2 class="h2">Past and cancelled</h2>
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Meeting</th><th>When</th><th></th></tr></thead>
+        <tbody>
+          {% for m in past %}
+            <tr>
+              <td><a href="{% url 'meeting-detail' m.pk %}">{{ m.title }}</a></td>
+              <td>{{ m.start|date:"D j M Y, H:i" }}</td>
+              <td>{% if m.is_cancelled %}<span class="muted">Cancelled</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

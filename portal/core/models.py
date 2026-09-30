@@ -26,6 +26,7 @@ from django.db import models
 from django.utils import timezone
 
 from .constants import (
+    Attendance,
     Availability,
     RequestStatus,
     RequestType,
@@ -474,6 +475,16 @@ class Task(models.Model):
     event_end = models.DateTimeField(null=True, blank=True)
     venue = models.CharField(max_length=300, blank=True)
 
+    paired_task = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="paired_editors",
+        help_text="On an editing task: the shooter task whose work it edits. "
+        "The editor follows the shooter when the shooter is reassigned.",
+    )
+
     class Meta:
         ordering = ["deadline", "task"]
         indexes = [models.Index(fields=["status", "deadline"])]
@@ -493,6 +504,77 @@ class Task(models.Model):
         covered an event that hasn't happened (docs/PRD.md §5.4).
         """
         return bool(self.event_start and self.event_start > timezone.now())
+
+
+class Meeting(models.Model):
+    """
+    A team meeting called by the POC, an admin or a vertical head. Invitees are
+    stored as `MeetingInvite` rows, so who was called, and how they were marked
+    afterwards, is a permanent record.
+    """
+
+    title = models.CharField(max_length=200)
+    start = models.DateTimeField()
+    end = models.DateTimeField()
+    venue = models.CharField(max_length=300, blank=True, help_text="May be blank if the MOM person is booking it.")
+    agenda = models.TextField(blank=True)
+
+    called_by = models.EmailField(db_index=True, help_text="Who called the meeting.")
+    wants_mom = models.BooleanField(
+        default=False, help_text="The caller asked for someone to take minutes and book the venue."
+    )
+    mom_email = models.EmailField(
+        blank=True, help_text="Who takes the minutes and books the venue. Responsibility only: no points."
+    )
+
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-start", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(end__gt=models.F("start")), name="meeting_end_after_start")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.start:%Y-%m-%d %H:%M})"
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self.cancelled_at is not None
+
+    @property
+    def has_started(self) -> bool:
+        return self.start <= timezone.now()
+
+    @property
+    def thread_key(self) -> str:
+        """Stable reference used to thread every email about this meeting."""
+        return f"MEET_{self.pk}"
+
+
+class MeetingInvite(models.Model):
+    """One invitee of a meeting, and how the caller marked their attendance."""
+
+    meeting = models.ForeignKey(Meeting, on_delete=models.CASCADE, related_name="invites")
+    member = models.ForeignKey(TeamMember, on_delete=models.CASCADE, related_name="meeting_invites")
+    attendance = models.CharField(max_length=10, choices=Attendance.CHOICES, blank=True, default=Attendance.UNMARKED)
+    strike_given = models.BooleanField(
+        default=False,
+        help_text="Engine flag: marking this person Absent gave them a yellow strike. Don't edit.",
+    )
+    marked_by = models.EmailField(blank=True)
+    marked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["member__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["meeting", "member"], name="unique_invite_per_meeting")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.name} @ {self.meeting.title}"
 
 
 class ActivityLog(models.Model):

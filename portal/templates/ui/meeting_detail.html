@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ meeting.title }} — Meetings{% endblock %}
+{% block content %}
+<section class="card stack">
+  <a class="back" href="{% url 'meeting-list' %}">← Meetings</a>
+
+  <div class="view-head">
+    <h1>{{ meeting.title }}</h1>
+    {% if meeting.is_cancelled %}<span class="status" data-status="Rejected">Cancelled</span>{% endif %}
+  </div>
+  <p class="muted">
+    {{ meeting.start|date:"l j F Y, H:i" }} – {{ meeting.end|date:"H:i" }}
+    · Called by {{ caller.name|default:meeting.called_by }}
+  </p>
+  <p><strong>Venue:</strong> {% if meeting.venue %}{{ meeting.venue }}{% else %}To be confirmed{% if mom %} — {{ mom.name }} is booking it{% endif %}{% endif %}</p>
+  {% if meeting.agenda %}<div><strong>Agenda</strong><p style="white-space:pre-line">{{ meeting.agenda }}</p></div>{% endif %}
+
+  {% if mom %}
+    <p><strong>Minutes (MOM) and venue booking:</strong> {{ mom.name }} <span class="muted">— a responsibility, no points</span></p>
+  {% endif %}
+
+  {% if can_change %}
+    <div class="row">
+      <a class="btn btn--sm" href="{% url 'meeting-edit' meeting.pk %}">Edit</a>
+      <form method="post" action="{% url 'meeting-cancel' meeting.pk %}" onsubmit="return confirm('Cancel this meeting and tell everyone invited?')">
+        {% csrf_token %}
+        <button type="submit" class="btn btn--sm btn--danger">Cancel meeting</button>
+      </form>
+    </div>
+    {% if mom_form %}
+      <form method="post" action="{% url 'meeting-set-mom' meeting.pk %}" class="row">
+        {% csrf_token %}
+        {{ mom_form.mom_email }}
+        <button type="submit" class="btn btn--sm">Change who takes the minutes</button>
+      </form>
+    {% endif %}
+  {% endif %}
+
+  <h2 class="h2">Invited ({{ invites|length }})</h2>
+
+  {% if can_mark %}
+    <p class="muted">Mark who came. <strong>Absent gives a yellow strike automatically</strong>; changing an Absent mark to anything else takes that strike back off.</p>
+    <form method="post" action="{% url 'meeting-attendance' meeting.pk %}" class="stack">
+      {% csrf_token %}
+      <div style="overflow-x:auto">
+        <table class="roster">
+          <thead><tr><th>Member</th><th>Attendance</th></tr></thead>
+          <tbody>
+            {% for inv in invites %}
+              <tr>
+                <td>{{ inv.member.name }}<br><span class="muted">{{ inv.member.vertical_label }}</span></td>
+                <td>
+                  <select class="input" name="status_{{ inv.pk }}">
+                    {% for value, label in attendance_choices %}
+                      <option value="{{ value }}" {% if inv.attendance == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                  {% if inv.strike_given %}<span class="muted">· yellow strike given</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="row"><button type="submit" class="btn btn--primary">Save attendance</button></div>
+    </form>
+  {% else %}
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Member</th><th>Vertical</th>{% if can_manage or marked %}<th>Attendance</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for inv in invites %}
+            <tr>
+              <td>{{ inv.member.name }}</td>
+              <td>{{ inv.member.vertical_label|default:"—" }}</td>
+              {% if can_manage or marked %}<td>{{ inv.get_attendance_display }}</td>{% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if can_manage and not meeting.is_cancelled and not meeting.has_started %}
+      <p class="muted">Attendance can be marked here once the meeting has started.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

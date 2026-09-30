@@ -31,6 +31,8 @@ NAV_ITEMS: list[NavItem] = [
     NavItem("requests", "My Requests", "Requests", "request-list", lambda r: True),
     NavItem("tasks", "My Tasks", "Tasks", "task-list", lambda r: r.is_team),
     NavItem("assignments", "Assignments", "Assign", "assignment-list", lambda r: r.can_reach_assignments),
+    # Team members see the meetings they're invited to; heads/POC/Admin also call them.
+    NavItem("meetings", "Meetings", "Meets", "meeting-list", lambda r: r.is_team or r.is_staff_side),
     NavItem("approvals", "Approvals", "Approve", "approval-list", lambda r: r.is_staff_side),
     NavItem("dashboard", "Dashboard", "Stats", "dashboard", lambda r: r.is_staff_side),
     NavItem("admin", "Admin", "Admin", "portal-admin", lambda r: r.is_staff_side),

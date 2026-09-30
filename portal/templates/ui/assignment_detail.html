@@ -49,6 +49,7 @@
 
   {% if add_forms %}
     <h2 class="h2">Add a task</h2>
+    <p class="muted">Adding a Photographer or Videographer also gives that person their own editing task — each shooter edits their own work.</p>
     <div class="stack">
       {% for entry in add_forms %}
         <form method="post" action="{% url 'assignment-add' request_obj.pk %}" class="row">

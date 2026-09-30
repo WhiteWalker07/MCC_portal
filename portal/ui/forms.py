@@ -226,6 +226,85 @@ class SubEventForm(forms.ModelForm):
         return cleaned
 
 
+class MeetingForm(forms.Form):
+    """
+    Call (or edit) a team meeting. Who is invited is one of three modes — the
+    whole team, chosen verticals, or chosen people — expressed with a radio and
+    two multi-selects so it needs no JavaScript: the fields for the modes you
+    didn't pick are simply ignored. `members` are the people who can be offered
+    (active and not out of work, plus anyone already invited when editing).
+    """
+
+    title = forms.CharField(max_length=200, widget=forms.TextInput(attrs={"class": "input"}))
+    start = forms.DateTimeField(widget=DateTimeLocalInput(attrs={"class": "input"}))
+    end = forms.DateTimeField(widget=DateTimeLocalInput(attrs={"class": "input"}))
+    venue = forms.CharField(
+        max_length=300,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "input", "placeholder": "Leave blank if the MOM person is booking it"}),
+    )
+    agenda = forms.CharField(required=False, widget=forms.Textarea(attrs={"class": "input", "rows": 4}))
+
+    invite_mode = forms.ChoiceField(choices=(), widget=forms.RadioSelect, initial="all", label="Who is invited")
+    verticals = forms.MultipleChoiceField(
+        choices=[(v, v) for v in VERTICALS],
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Verticals",
+        help_text="Anyone whose primary or secondary vertical is one of these.",
+    )
+    people = forms.MultipleChoiceField(
+        choices=(), required=False, widget=forms.CheckboxSelectMultiple, label="People"
+    )
+
+    wants_mom = forms.BooleanField(
+        required=False,
+        label="Assign one person to take the minutes (MOM) and book the venue",
+    )
+    mom_email = forms.ChoiceField(
+        required=False,
+        label="Who",
+        widget=forms.Select(attrs={"class": "input"}),
+    )
+
+    def __init__(self, *args, members=(), mom_candidates=(), require_future=True, **kwargs):
+        from engine.meetings import INVITE_MODES  # local: keeps ui.forms importable without the engine
+
+        super().__init__(*args, **kwargs)
+        self.require_future = require_future
+        self.fields["invite_mode"].choices = INVITE_MODES
+        self.fields["people"].choices = [
+            (m.email, f"{m.name}" + (f" · {m.vertical_label}" if m.vertical_label else "")) for m in members
+        ]
+        self.fields["mom_email"].choices = [("", "Pick automatically (fewest points)")] + [
+            (m.email, m.name) for m in mom_candidates
+        ]
+
+    def clean(self):
+        cleaned = super().clean()
+        start, end = cleaned.get("start"), cleaned.get("end")
+        if start and end and end <= start:
+            self.add_error("end", "The meeting must end after it starts.")
+        if start and self.require_future and start <= timezone.now():
+            self.add_error("start", "That start time has already passed.")
+        mode = cleaned.get("invite_mode")
+        if mode == "verticals" and not cleaned.get("verticals"):
+            self.add_error("verticals", "Pick at least one vertical.")
+        if mode == "people" and not cleaned.get("people"):
+            self.add_error("people", "Pick at least one person.")
+        return cleaned
+
+
+class MomForm(forms.Form):
+    """Change who takes the minutes and books the venue, or clear it."""
+
+    mom_email = forms.ChoiceField(required=False, label="Minutes + venue", widget=forms.Select(attrs={"class": "input"}))
+
+    def __init__(self, *args, candidates=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["mom_email"].choices = [("", "Nobody")] + [(m.email, m.name) for m in candidates]
+
+
 class RejectForm(forms.Form):
     reason = forms.CharField(
         widget=forms.Textarea(attrs={"rows": 3, "class": "input", "placeholder": "Reason (sent to the requester)"}),

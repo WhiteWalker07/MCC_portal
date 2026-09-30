@@ -27,6 +27,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.constants import (
+    DERIVED_EDITOR,
     EDIT_CUTOFF_HOURS,
     STRIKE_RED,
     STRIKE_YELLOW,
@@ -59,7 +60,7 @@ from engine.assign import choose_supervisor, eligible_members
 from engine.assignment import override_proposed_assignee, perform_swap, validate_member
 from engine.confirm import confirm_request
 from engine.event_changes import apply_event_time_change, notify_subevent_change
-from engine.pipeline import compute_deadline
+from engine.pipeline import compute_deadline, refresh_coordinator_deadline
 from engine.workflow import (
     complete_task,
     open_supervision_counts,
@@ -908,18 +909,56 @@ def assignment_add(request, request_pk):
             request_obj.supervisor_email = member.email
             request_obj.save(update_fields=["supervisor_email"])
 
+        # Each shooter edits their own work: an extra photographer/videographer
+        # arrives with their own editing task, whether or not they hold the
+        # editing skill.
+        new_editor = None
+        editor_type = TaskType.objects.filter(task=DERIVED_EDITOR.get(task_type.task, "")).first()
+        if editor_type is not None:
+            new_editor = Task.objects.create(
+                request=request_obj,
+                req_type=request_obj.type,
+                ref_code=request_obj.ref_code or "",
+                task=editor_type.task,
+                required_skill=editor_type.required_skill,
+                at_event=editor_type.at_event,
+                vertical=editor_type.vertical or "",
+                member=member.name,
+                email=member.email,
+                phone=member.phone or "",
+                points=editor_type.points,
+                deadline=compute_deadline(editor_type, request_obj, timezone.now()),
+                status=new_task.status,
+                coordinator_email=request_obj.coordinator_email or "",
+                event_name=request_obj.event_name or "",
+                event_start=request_obj.event_start,
+                event_end=request_obj.event_end,
+                venue=request_obj.venue or "",
+                paired_task=new_task,
+            )
+
+        # The coordinator is due after the last of the others, and one just arrived.
+        refresh_coordinator_deadline(request_obj)
+
     from engine.notify import notify_assignee
     from core.activity import log_activity
 
     notify_assignee(new_task)
+    if new_editor is not None:
+        notify_assignee(new_editor)
     log_activity(
         "manual-assign",
         request_obj=request_obj,
         ref_code=request_obj.ref_code,
         member=member.email,
-        detail=f"{task_type.task} -> {member.name} ({form.mode})",
+        detail=f"{task_type.task} -> {member.name} ({form.mode})"
+        + (f", with their {new_editor.task}" if new_editor is not None else ""),
     )
-    messages.success(request, f"{task_type.task} added, assigned to {member.name}.")
+    messages.success(
+        request,
+        f"{task_type.task} added, assigned to {member.name}"
+        + (f", along with their {new_editor.task}." if new_editor is not None else "."),
+    )
     return redirect("assignment-detail", pk=request_obj.pk)
 
 
