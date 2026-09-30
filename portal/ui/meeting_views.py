@@ -41,7 +41,7 @@ def _visible_meetings(roles):
 
 
 def _mom_candidates(members):
-    return [m for m in members if m.year != 2]
+    return [m for m in members if engine.can_take_mom(m)]
 
 
 @login_required
@@ -176,6 +176,12 @@ def meeting_edit(request, pk):
     )
     if request.method == "POST" and form.is_valid():
         invitees = _invitees_from(form)
+        if form.cleaned_data["invite_mode"] == engine.INVITE_PEOPLE:
+            # resolve_invitees drops anyone out of work; someone already invited
+            # who is still ticked stays on the list rather than being uninvited.
+            chosen = set(form.cleaned_data.get("people") or ())
+            have = {m.email for m in invitees}
+            invitees += [m for m in invited if m.email in chosen and m.email not in have]
         try:
             engine.update_meeting(
                 meeting,

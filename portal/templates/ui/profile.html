@@ -39,14 +39,64 @@
     <h2 class="h2">Contact number</h2>
     <p class="muted">
       Shown to coordinators and requesters when you're assigned a task. Everything
-      else here (points, strikes, skills, vertical, availability) is managed by
-      your domain head or the Secretary/Admin.
+      else here (points, strikes, skills, vertical) is managed by your domain head
+      or the Secretary/Admin. To be marked out of work, use the request below.
     </p>
     <form method="post" class="stack">
       {% csrf_token %}
       {{ phone_form.phone }}
       <button type="submit" class="btn btn--primary btn--sm">Save</button>
     </form>
+  {% endif %}
+
+  {% if roles.member %}
+    <h2 class="h2">Out of work</h2>
+    {% if open_leave %}
+      {% if open_leave.status == "pending" %}
+        <p class="note">Your request for {{ open_leave.start_date|date:"j M" }} – {{ open_leave.end_date|date:"j M Y" }}
+          is <strong>waiting for the POC</strong>. Until it's approved nothing changes: you'll still get work and meeting invitations.</p>
+        <p class="muted">Reason: {{ open_leave.reason }}</p>
+      {% elif open_leave.started_at %}
+        <p class="note">You're <strong>out of work</strong> until {{ open_leave.end_date|date:"j M Y" }} (approved).
+          You'll be back on work automatically the day after.</p>
+      {% else %}
+        <p class="note">Approved: you'll be out of work from {{ open_leave.start_date|date:"j M" }} to {{ open_leave.end_date|date:"j M Y" }}.</p>
+      {% endif %}
+      {% if open_leave.status == "pending" or not open_leave.started_at %}
+        <form method="post" action="{% url 'leave-cancel' open_leave.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn--sm">Withdraw request</button>
+        </form>
+      {% endif %}
+    {% elif is_out %}
+      <p class="note">You're marked <strong>out of work</strong>. You won't get new assignments or meeting invitations.</p>
+    {% else %}
+      <p class="muted">Going to be away (exams, travel)? Ask the POC. You stay on work until they approve and your start date arrives.</p>
+      <form method="post" action="{% url 'leave-request' %}" class="stack">
+        {% csrf_token %}
+        <label class="field"><span class="field__label">Reason</span>{{ leave_form.reason }}</label>
+        <div class="grid2">
+          <label class="field"><span class="field__label">From</span>{{ leave_form.start_date }}</label>
+          <label class="field"><span class="field__label">To (last day out)</span>{{ leave_form.end_date }}</label>
+        </div>
+        <div class="row"><button type="submit" class="btn btn--primary btn--sm">Request out of work</button></div>
+      </form>
+    {% endif %}
+
+    {% if is_out %}
+      <form method="post" action="{% url 'leave-return' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn--primary btn--sm">I'm back — mark me on work</button>
+      </form>
+    {% endif %}
+
+    {% if recent_leaves %}
+      <ul class="plain muted">
+        {% for l in recent_leaves %}
+          <li>{{ l.start_date|date:"j M" }} – {{ l.end_date|date:"j M Y" }}: {{ l.get_status_display }}{% if l.decision_note %} — “{{ l.decision_note }}”{% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
   {% endif %}
 
   {% if not roles.member and not roles.committee %}

@@ -1356,9 +1356,9 @@ class PortalViewTests(TestCase):
 
     def test_portal_admin_renders(self):
         self.client.force_login(self.admin_user)
-        response = self.client.get(reverse("portal-admin"))
-        self.assertContains(response, "Sapient")
-        self.assertContains(response, "Asha")
+        # The page shows one group at a time: the roster on Team, clubs on Committees.
+        self.assertContains(self.client.get(reverse("portal-admin"), {"tab": "team"}), "Asha")
+        self.assertContains(self.client.get(reverse("portal-admin"), {"tab": "committees"}), "Sapient")
 
     def test_admin_can_update_a_members_contact_number(self):
         self.client.force_login(self.admin_user)

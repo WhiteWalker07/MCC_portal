@@ -226,6 +226,33 @@ class SubEventForm(forms.ModelForm):
         return cleaned
 
 
+class LeaveRequestForm(forms.Form):
+    """A member's request to go Out of work between two dates."""
+
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={"class": "input", "rows": 2, "placeholder": "Why (e.g. exams, travel)"}),
+        max_length=1000,
+    )
+    start_date = forms.DateField(
+        label="From", widget=forms.DateInput(attrs={"type": "date", "class": "input"}, format="%Y-%m-%d")
+    )
+    end_date = forms.DateField(
+        label="To (last day out)",
+        widget=forms.DateInput(attrs={"type": "date", "class": "input"}, format="%Y-%m-%d"),
+    )
+
+
+class LeaveDecisionForm(forms.Form):
+    """The POC/Admin's decision on a request; the note is emailed to the member."""
+
+    decision = forms.ChoiceField(choices=[("approve", "Approve"), ("decline", "Decline")])
+    note = forms.CharField(
+        required=False,
+        max_length=500,
+        widget=forms.TextInput(attrs={"class": "input", "placeholder": "Note to them (optional)"}),
+    )
+
+
 class MeetingForm(forms.Form):
     """
     Call (or edit) a team meeting. Who is invited is one of three modes — the

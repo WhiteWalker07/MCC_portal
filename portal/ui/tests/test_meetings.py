@@ -184,6 +184,14 @@ class MeetingPagesTests(MeetingViewBase):
         self.assertEqual(self.meeting.venue, "Room 9")
         self.assertTrue(any(m.subject.startswith("[Meeting updated]") for m in mail.outbox))
 
+    def test_editing_keeps_an_invitee_who_has_since_gone_out_of_work(self):
+        TeamMember.objects.filter(email=RAVI).update(availability=Availability.OUT)
+        self.client.force_login(self.head)
+        response = self.client.post(reverse("meeting-edit", args=[self.meeting.pk]), self.form(agenda="New"))
+        self.assertRedirects(response, self.url)
+        self.assertEqual(set(self.meeting.invites.values_list("member__email", flat=True)), {NEHA, RAVI})
+        self.assertFalse(any("no longer invited" in m.subject for m in mail.outbox))
+
     def test_cancelling(self):
         cancel = reverse("meeting-cancel", args=[self.meeting.pk])
         self.client.force_login(self.neha)
@@ -302,6 +310,16 @@ class ExtraShooterTests(TestCase):
         self.assertEqual((photographer.email, editor.email), (RAVI, RAVI))
         self.assertEqual(editor.paired_task_id, photographer.pk)
         self.assertEqual(editor.deadline, self.request.event_end + timedelta(hours=24))
+
+    def test_added_tasks_are_worth_the_scheme_points_not_the_old_per_type_numbers(self):
+        # The fixture's Photographer/Photo Editor types say 5 and 3; the scheme says 10.
+        self.add("Photographer", RAVI)
+        self.assertEqual(self.request.tasks.get(task="Photographer").points, 10)
+        self.assertEqual(self.request.tasks.get(task="Photo Editor").points, 10)
+
+    def test_a_hand_added_coordinator_is_worth_twenty(self):
+        self.add("Event Coordinator", RAVI)
+        self.assertEqual(self.request.tasks.get(task="Event Coordinator").points, 20)
 
     def test_the_new_shooter_is_told_about_both_tasks(self):
         self.add("Photographer", RAVI)

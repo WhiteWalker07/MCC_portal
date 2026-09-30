@@ -26,9 +26,12 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from core.config import get_points_scheme
 from core.constants import (
     DERIVED_EDITOR,
     EDIT_CUTOFF_HOURS,
+    Availability,
+    LeaveStatus,
     STRIKE_RED,
     STRIKE_YELLOW,
     TASK_EVENT_COORDINATOR,
@@ -41,6 +44,7 @@ from core.csv_import import import_rows, parse_csv
 from core.decorators import secretary_or_admin_required, team_required
 from core.models import (
     Committee,
+    LeaveRequest,
     PointsScheme,
     Request,
     SubEvent,
@@ -60,7 +64,9 @@ from engine.assign import choose_supervisor, eligible_members
 from engine.assignment import override_proposed_assignee, perform_swap, validate_member
 from engine.confirm import confirm_request
 from engine.event_changes import apply_event_time_change, notify_subevent_change
+from engine.leave import open_leave_for, open_tasks_by_email, switch_availability
 from engine.pipeline import compute_deadline, refresh_coordinator_deadline
+from engine.points import base_points_for
 from engine.workflow import (
     complete_task,
     open_supervision_counts,
@@ -76,6 +82,7 @@ from .forms import (
     AvailabilityForm,
     CommitteeForm,
     EventTimeForm,
+    LeaveRequestForm,
     MemberPhoneForm,
     MemberVerticalsForm,
     PointSchemeForm,
@@ -93,6 +100,9 @@ from .forms import (
 )
 
 DAY_SECONDS = 86400
+
+#: Admin page tabs, in order. The first is the default.
+ADMIN_TABS = [("team", "Team"), ("committees", "Committees"), ("setup", "Setup")]
 
 #: Blank sub-event rows offered on the new-request form. Untouched rows are
 #: skipped on save, so three costs a club nothing if they have no schedule.
@@ -134,7 +144,19 @@ def profile(request):
         else:
             phone_form = ProfilePhoneForm(initial={"phone": roles.member.phone})
 
-    return render(request, "ui/profile.html", {"roles": roles, "phone_form": phone_form})
+    context = {"roles": roles, "phone_form": phone_form}
+    if roles.member is not None:
+        member = roles.member
+        context.update(
+            {
+                "is_out": member.availability == Availability.OUT,
+                "open_leave": open_leave_for(member),
+                "recent_leaves": member.leave_requests.exclude(status__in=LeaveStatus.OPEN)[:3],
+                "leave_form": LeaveRequestForm(),
+                "today": timezone.localdate(),
+            }
+        )
+    return render(request, "ui/profile.html", context)
 
 
 # ── Requests ─────────────────────────────────────────────────────────────────
@@ -888,7 +910,9 @@ def assignment_add(request, request_pk):
             member=member.name,
             email=member.email,
             phone=member.phone or "",
-            points=0 if task_type.task == TASK_SUPERVISOR else task_type.points,
+            # The same scheme automatic assignment uses (coordinator 20, supervisor 0,
+            # everything else the domain-task base), not the per-type legacy number.
+            points=base_points_for(task_type.task, get_points_scheme()),
             deadline=compute_deadline(task_type, request_obj, timezone.now()),
             status=TaskStatus.CONFIRMED if confirmed_state else TaskStatus.PROPOSED,
             coordinator_email=member.email if is_new_coordinator else (request_obj.coordinator_email or ""),
@@ -926,7 +950,7 @@ def assignment_add(request, request_pk):
                 member=member.name,
                 email=member.email,
                 phone=member.phone or "",
-                points=editor_type.points,
+                points=base_points_for(editor_type.task, get_points_scheme()),
                 deadline=compute_deadline(editor_type, request_obj, timezone.now()),
                 status=new_task.status,
                 coordinator_email=request_obj.coordinator_email or "",
@@ -1012,7 +1036,16 @@ def mark_ready_to_post(request, request_pk):
 @secretary_or_admin_required
 def approval_list(request):
     pending = Request.objects.filter(status=RequestStatus.PENDING)
-    return render(request, "ui/approval_list.html", {"requests": pending})
+    # Out-of-work requests are decided here too. Each comes with the member's open
+    # tasks, because approving never moves them: the POC reassigns by hand.
+    pending_leaves = list(
+        LeaveRequest.objects.filter(status=LeaveStatus.PENDING)
+        .select_related("member")
+        .order_by("start_date", "requested_at")
+    )
+    tasks_by_email = open_tasks_by_email([leave.member for leave in pending_leaves])
+    leaves = [{"leave": leave, "tasks": tasks_by_email[leave.member.email]} for leave in pending_leaves]
+    return render(request, "ui/approval_list.html", {"requests": pending, "leaves": leaves})
 
 
 @secretary_or_admin_required
@@ -1122,26 +1155,38 @@ def dashboard(request):
 def portal_admin(request):
     from core.constants import VERTICALS
 
-    committees = Committee.objects.all()
-    members = TeamMember.objects.all()
-    heads = {m.domain_head_of: m for m in members if m.domain_head_of}
-    scheme = PointsScheme.load()
+    # One group at a time. The tab is remembered for the session so the many
+    # actions that redirect back here land on the tab you were working in.
+    tab = request.GET.get("tab") or request.session.get("admin_tab") or ADMIN_TABS[0][0]
+    if tab not in dict(ADMIN_TABS):
+        tab = ADMIN_TABS[0][0]
+    request.session["admin_tab"] = tab
 
-    strikeable = [m for m in members if m.yellow_strikes > 0 or m.red_strikes > 0]
-    removable = [m for m in members if m.active]
+    context = {"tab": tab, "tabs": ADMIN_TABS, "is_admin": request.roles.is_admin, "verticals": VERTICALS}
 
-    context = {
-        "committees": committees,
-        "committee_form": CommitteeForm(),
-        "members": members,
-        "verticals": VERTICALS,
-        "heads": heads,
-        "team_import_form": TeamImportForm(),
-        "point_form": PointSchemeForm(instance=scheme) if request.roles.is_admin else None,
-        "is_admin": request.roles.is_admin,
-        "remove_strike_form": RemoveStrikeForm(strikeable=strikeable) if strikeable else None,
-        "remove_from_team_form": RemoveFromTeamForm(removable=removable) if removable else None,
-    }
+    if tab == "team":
+        members = list(TeamMember.objects.all())
+        strikeable = [m for m in members if m.yellow_strikes > 0 or m.red_strikes > 0]
+        removable = [m for m in members if m.active]
+        context.update(
+            {
+                "members": members,
+                "remove_strike_form": RemoveStrikeForm(strikeable=strikeable) if strikeable else None,
+                "remove_from_team_form": RemoveFromTeamForm(removable=removable) if removable else None,
+            }
+        )
+    elif tab == "committees":
+        context.update({"committees": Committee.objects.all(), "committee_form": CommitteeForm()})
+    else:  # setup: vertical heads, CSV import, point scheme
+        members = list(TeamMember.objects.all())
+        context.update(
+            {
+                "members": members,
+                "heads": {m.domain_head_of: m for m in members if m.domain_head_of},
+                "team_import_form": TeamImportForm(),
+                "point_form": PointSchemeForm(instance=PointsScheme.load()) if request.roles.is_admin else None,
+            }
+        )
     return render(request, "ui/admin.html", context)
 
 
@@ -1324,8 +1369,6 @@ def set_vertical_head(request):
 @secretary_or_admin_required
 @require_POST
 def set_availability(request):
-    from core.constants import Availability, DAY
-
     form = AvailabilityForm(request.POST)
     if not form.is_valid():
         messages.error(request, "Pick a member and a status.")
@@ -1334,33 +1377,11 @@ def set_availability(request):
     email = form.cleaned_data["member_email"].strip().lower()
     next_status = form.cleaned_data["availability"]
 
-    # Locked read-modify-write: two toggles at once would otherwise both bank the
-    # same stretch of time, or one would silently overwrite the other.
-    with transaction.atomic():
-        member = get_object_or_404(TeamMember.objects.select_for_update(), email=email)
-
-        now = timezone.now()
-        previous = member.availability if member.availability == Availability.OUT else Availability.AVAILABLE
-        changed_at = member.availability_changed_at or now
-        segment_days = max(0.0, (now - changed_at).total_seconds() / DAY)
-
-        if previous == Availability.OUT:
-            member.out_days = round((member.out_days or 0) + segment_days, 1)
-        else:
-            member.on_work_days = round((member.on_work_days or 0) + segment_days, 1)
-
-        member.availability = next_status
-        member.availability_changed_at = now
-        member.save(update_fields=["availability", "availability_changed_at", "on_work_days", "out_days"])
-
-    from core.activity import log_activity
-
-    log_activity(
-        "availability",
-        actor=request.roles.email,
-        member=email,
-        detail=f"{previous} -> {next_status}",
-    )
+    # The POC/Admin can always mark someone out or back directly, no request
+    # needed. The shared function does the locked read-modify-write and the
+    # day-banking, so this and the member-driven paths can't drift apart.
+    get_object_or_404(TeamMember, email=email)
+    member = switch_availability(email, next_status, request.roles.email)
     messages.success(request, f"{member.name} marked {'out of work' if next_status == 'out' else 'on work'}.")
     return redirect("portal-admin")
 

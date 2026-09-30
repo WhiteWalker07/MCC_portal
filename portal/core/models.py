@@ -28,6 +28,7 @@ from django.utils import timezone
 from .constants import (
     Attendance,
     Availability,
+    LeaveStatus,
     RequestStatus,
     RequestType,
     TaskStatus,
@@ -331,6 +332,50 @@ class TeamMember(models.Model):
     @property
     def strike_label(self) -> str:
         return f"{self.yellow_strikes} yellow, {self.red_strikes} red"
+
+
+class LeaveRequest(models.Model):
+    """
+    A member's request to be Out of work between two dates, decided by the
+    POC/Admin. Nothing changes for the member (they keep getting work and can be
+    called to meetings) until it is approved and its start date arrives.
+    """
+
+    member = models.ForeignKey(TeamMember, on_delete=models.CASCADE, related_name="leave_requests")
+    reason = models.TextField()
+    start_date = models.DateField()
+    end_date = models.DateField(help_text="The last day out; they return the day after.")
+    status = models.CharField(
+        max_length=10, choices=LeaveStatus.CHOICES, default=LeaveStatus.PENDING, db_index=True
+    )
+    requested_at = models.DateTimeField(default=timezone.now)
+
+    decided_by = models.EmailField(blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.TextField(blank=True)
+
+    started_at = models.DateTimeField(
+        null=True, blank=True, help_text="Engine: when the member was actually switched to Out of work."
+    )
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-requested_at", "-pk"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(end_date__gte=models.F("start_date")), name="leave_end_not_before_start")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.name}: {self.start_date} to {self.end_date} ({self.status})"
+
+    @property
+    def is_open(self) -> bool:
+        return self.status in LeaveStatus.OPEN
+
+    @property
+    def is_active(self) -> bool:
+        """Approved and the member has actually been switched out."""
+        return self.status == LeaveStatus.APPROVED and self.started_at is not None
 
 
 # ── Workflow ─────────────────────────────────────────────────────────────────
