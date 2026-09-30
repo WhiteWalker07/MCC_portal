@@ -75,23 +75,50 @@ Everything in "Everyone," plus:
   **secondary** vertical. Automatic assignment tries people whose primary
   vertical matches the work first, then those with it as their secondary, then
   anyone else with the skill. Admin/POC can change your verticals.
-- **Strikes** come in two colours and are **only ever given by hand** — nothing
-  is issued automatically any more (a late task is still marked LATE and the
-  right people are emailed, but no strike is added). A **yellow** strike is a
+- **Strikes** come in two colours and are given by hand, with **one automatic
+  exception**: being marked **Absent** at a team meeting gives a yellow strike
+  (taken back if the caller corrects the mark). A late task is still marked LATE
+  and the right people are emailed, but no strike is added. A **yellow** strike is a
   warning and can be given by your domain head (if you're in their vertical,
   primary or secondary) or the Secretary/POC/Admin; a **red** strike is
   serious and only the Secretary/POC/Admin can give one. Strikes never stop you
   being assigned work. Talk to your vertical head or the Secretary/POC if you
   think one was wrong; only the Secretary/POC or Admin can remove one.
 
+### Editing your own work
+
+Each photographer edits their own photos and each videographer their own
+footage: the **Photo Editor / Video Editor** task is given to the same person as
+the shoot, whether or not they hold the editing skill. If your shoot is
+reassigned, the editing goes with it (unless it was already finished, or was
+deliberately given to someone else).
+
+### Team meetings
+
+`Meetings` lists the meetings you were invited to. You get an email (and a
+calendar entry, if you've connected Calendar) when you're called. If you can't
+attend, tell whoever called it beforehand — **attendance is taken, and being
+marked Absent gives you a yellow strike automatically**. If the caller corrects
+the mark to Present, Late or Excused, the strike is taken back off. People marked
+**Out of work** can't be called.
+
+If you were named to **take the minutes (MOM) and book the venue**, you'll get a
+separate email. It's a responsibility only — no points.
+
 ### If you're coordinating a request (you raised or were assigned to run one)
 
 - **`Assignments`** shows the tasks on requests you coordinate. You can
   **reassign** any of them — auto-pick a replacement or choose manually —
   and **add** an extra task type that wasn't in the original plan (e.g.
-  bringing in a Video Editor after the fact). The one exception is the
+  another **Photographer or Videographer** for a big event; they arrive with
+  their own editing task). The one exception is the
   **Task Supervisor** on your request: you can't change it — only the
   Secretary/POC or Admin can.
+- **You are timed too.** Your deadline is **12 hours after the last deadline of
+  the request's other tasks**. Finishing on time earns the flat 20 points;
+  finishing later loses points on the same curve as a late task, counted from
+  your deadline (−30% at once, then a further −10% for every 6 hours, down to
+  zero). A late coordinator is marked LATE and the Task Supervisor is emailed.
 - Once every deliverable is in, mark the request **Ready to post** — the
   system schedules the actual posts for you.
 
@@ -99,7 +126,9 @@ Everything in "Everyone," plus:
 
 Everything above, but **for any request, not just ones you coordinate** —
 you can assign, reassign, and manually strike within your own vertical
-specifically (not other verticals). You were appointed this by the
+specifically (not other verticals). You can also **call a team meeting**
+(`Meetings` → Schedule a meeting) for anyone on the team, not only your
+vertical — see "Calling and running meetings" under Secretary/POC below. You were appointed this by the
 Secretary/POC or Admin (`Portal Admin → Vertical heads`); if you think you
 should have this and don't, ask them.
 
@@ -140,6 +169,16 @@ Everything above, plus:
   second-year; the system suggests one) as you approve. Approving confirms the
   roster and sends notifications; rejecting needs a reason, which gets emailed
   to the requester.
+- **Calling and running meetings** (`Meetings` → Schedule a meeting; also open
+  to Admin and vertical heads): give a title, date, start/end time, venue
+  (optional) and agenda, and invite the **whole team**, **chosen verticals**
+  (primary or secondary) or **chosen people**. Anyone marked Out of work is
+  not listed and can't be called. Tick **"Assign one person to take the minutes
+  (MOM) and book the venue"** to have the system suggest the first-year invitee
+  with the fewest points; you can change who. Before it starts you can **edit**
+  or **cancel** it (everyone affected is emailed). Once it starts, you (or the
+  POC/Admin) **mark attendance** — Present, Late, Absent or Excused. **Absent
+  gives a yellow strike automatically**; correcting the mark removes it.
 - **Strikes, team-wide**: give a **yellow or red** strike to **any** member, or
   remove either colour (not vertical-scoped, unlike a domain head, who can give
   yellow only).

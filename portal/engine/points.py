@@ -4,6 +4,10 @@ Scoring scheme (docs/PRD.md §5.7).
 Ported verbatim from `server/src/engine/points.ts`. Pure arithmetic — no
 database access — so it can be tested directly and reasoned about in isolation.
 
+The Event Coordinator gets no early bonus, but it does have a deadline (12h after
+the request's last individual task). Finishing after it costs points on the same
+late curve, measured from that deadline -- see `overdue_multiplier`.
+
 Base points by role:
     Task Supervisor   -> 0 (a duty, not scored work)
     Event Coordinator -> coordinator_points
@@ -51,14 +55,33 @@ def timing_multiplier(turnaround_hours: float, scheme) -> float:
         return 1 + scheme.early_bonus_pct / 100
 
     if turnaround_hours > scheme.late_threshold_hours:
-        # Each further `subsequent_delay_hours` block past the threshold adds
-        # another penalty step. max(1, ...) guards a misconfigured zero.
-        block = max(1, scheme.subsequent_delay_hours)
-        extra_blocks = int((turnaround_hours - scheme.late_threshold_hours) // block)
-        penalty_pct = scheme.late_penalty_pct + scheme.subsequent_penalty_pct * extra_blocks
-        return max(0.0, 1 - penalty_pct / 100)
+        return _late_multiplier(turnaround_hours - scheme.late_threshold_hours, scheme)
 
     return 1.0
+
+
+def _late_multiplier(hours_past: float, scheme) -> float:
+    """
+    The late-penalty curve: `late_penalty_pct` once past the line, then
+    `subsequent_penalty_pct` more for each further full `subsequent_delay_hours`
+    block, never below zero. `hours_past` is measured from the line itself.
+    """
+    # max(1, ...) guards a misconfigured zero block length.
+    block = max(1, scheme.subsequent_delay_hours)
+    extra_blocks = int(hours_past // block)
+    penalty_pct = scheme.late_penalty_pct + scheme.subsequent_penalty_pct * extra_blocks
+    return max(0.0, 1 - penalty_pct / 100)
+
+
+def overdue_multiplier(hours_overdue: float, scheme) -> float:
+    """
+    Multiplier for a task that has its own deadline and was finished after it
+    (the Event Coordinator): 1.0 on time, then the same late curve a deliverable
+    gets, measured from the deadline. It never earns an early bonus.
+    """
+    if hours_overdue <= 0:
+        return 1.0
+    return _late_multiplier(hours_overdue, scheme)
 
 
 def final_points(base: int, turnaround_hours: float, scheme) -> int:

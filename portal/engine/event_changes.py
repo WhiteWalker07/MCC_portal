@@ -31,7 +31,7 @@ from core.constants import TASK_POST, TASK_SUPERVISOR, RequestStatus, TaskStatus
 from services import email as email_service
 from services.calendar import calendar_service
 
-from .pipeline import compute_deadline
+from .pipeline import compute_deadline, refresh_coordinator_deadline
 
 #: Task statuses of people who have actually been assigned (as opposed to merely
 #: proposed by the engine, or unfilled).
@@ -104,6 +104,10 @@ def apply_event_time_change(request_obj, new_start, new_end, actor: str) -> dict
                     if task.email and not task.at_event and task.deadline:
                         reminders.append(task)
             task.save(update_fields=fields)
+
+        # The coordinator is due after the last of the others, whose deadlines
+        # just moved.
+        refresh_coordinator_deadline(request_obj)
 
     # Until the request is accepted nobody has been told they're on it (their
     # task is still PROPOSED), so there's no team to email, no calendar entry to

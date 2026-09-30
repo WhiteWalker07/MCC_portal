@@ -28,16 +28,18 @@ Task Supervisor has no deadline at all.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from core.constants import (
+    COORDINATOR_GRACE_HOURS,
     DERIVED_EDITOR,
     TASK_CONTENT_WRITER,
     TASK_EVENT_COORDINATOR,
     TASK_GRAPHIC_DESIGNER,
     TASK_SUPERVISOR,
     RequestType,
+    TaskStatus,
 )
 
 from .points import base_points_for
@@ -54,6 +56,9 @@ class PipelineTask:
     at_event: bool
     vertical: str
     deadline: datetime | None
+    #: For an editing task: the shoot role whose work it edits ("Photographer").
+    #: The editor is given to whoever holds that shooter task.
+    pairs_with: str = ""
 
 
 def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[PipelineTask]:
@@ -77,6 +82,8 @@ def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[Pipel
         names.append(TASK_CONTENT_WRITER)
         names.append(TASK_GRAPHIC_DESIGNER)
 
+    editor_of = {editor: shooter for shooter, editor in DERIVED_EDITOR.items()}
+
     pipeline: list[PipelineTask] = []
     for name in names:
         task_type = by_name.get(name)
@@ -93,15 +100,59 @@ def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[Pipel
                 at_event=task_type.at_event,
                 vertical=task_type.vertical or "",
                 deadline=compute_deadline(task_type, request_obj, now),
+                pairs_with=editor_of.get(task_type.task, ""),
             )
         )
+
+    # The Event Coordinator is due after everyone else, so its deadline depends
+    # on the rest of the pipeline and can only be set once that is built.
+    if request_obj.type == RequestType.COVERAGE:
+        others = [p.deadline for p in pipeline if p.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)]
+        for i, p in enumerate(pipeline):
+            if p.task == TASK_EVENT_COORDINATOR:
+                pipeline[i] = replace(p, deadline=coordinator_deadline(request_obj, others))
     return pipeline
+
+
+def coordinator_deadline(request_obj, other_deadlines) -> datetime | None:
+    """
+    When the Event Coordinator is due: `COORDINATOR_GRACE_HOURS` after the last
+    deadline of the request's other individual tasks, or after the event end if
+    there are none. `None` when the request has no event end to measure from.
+    """
+    known = [d for d in other_deadlines if d is not None]
+    latest = max(known) if known else request_obj.event_end
+    if latest is None:
+        return None
+    return latest + timedelta(hours=COORDINATOR_GRACE_HOURS)
+
+
+def refresh_coordinator_deadline(request_obj) -> None:
+    """
+    Recompute the Event Coordinator's deadline from the request's other tasks.
+    Call it whenever a task is added or the other deadlines move. A coordinator
+    who has already finished keeps the deadline it was judged against.
+    """
+    if request_obj.type != RequestType.COVERAGE:
+        return
+    tasks = list(request_obj.tasks.all())
+    others = [t.deadline for t in tasks if t.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)]
+    new_deadline = coordinator_deadline(request_obj, others)
+    for task in tasks:
+        if task.task == TASK_EVENT_COORDINATOR and task.status != TaskStatus.DONE and task.deadline != new_deadline:
+            task.deadline = new_deadline
+            task.save(update_fields=["deadline"])
 
 
 def compute_deadline(task_type, request_obj, now: datetime) -> datetime | None:
     """When a task of this type, on this request, is due. `None` = no deadline."""
     if task_type.task == TASK_SUPERVISOR:
         return None  # supervising has no due date; it closes with the Event Coordinator
+    if task_type.task == TASK_EVENT_COORDINATOR and request_obj.type == RequestType.COVERAGE:
+        # A first guess of "event end + grace". Callers that know the rest of the
+        # request's tasks refine it via `coordinator_deadline`.
+        end = request_obj.event_end
+        return end + timedelta(hours=COORDINATOR_GRACE_HOURS) if end else None
     if request_obj.type == RequestType.COVERAGE and request_obj.event_end:
         end = request_obj.event_end
         if task_type.at_event and task_type.sla_hours == 0:

@@ -150,12 +150,36 @@ STRIKE_CHOICES = [(STRIKE_YELLOW, "Yellow (warning)"), (STRIKE_RED, "Red (seriou
 #: is still more than this many hours away.
 EDIT_CUTOFF_HOURS = 24
 
-#: Coverage requests derive an editor task from each shoot role that was
-#: requested (docs/PRD.md §5.2).
+#: The Event Coordinator is due this many hours after the last deadline of the
+#: request's other tasks (or after the event end if it has none). Finishing
+#: later costs points on the same curve as a late deliverable.
+COORDINATOR_GRACE_HOURS = 12
+
+#: Coverage requests derive an editor task from each shoot role (docs/PRD.md
+#: §5.2). The editor is the shooter themself: each photographer edits their own
+#: photos and each videographer their own footage.
 DERIVED_EDITOR = {
     "Photographer": "Photo Editor",
     "Videographer": "Video Editor",
 }
+
+
+class Attendance:
+    """How an invitee's attendance at a team meeting was marked."""
+
+    UNMARKED = ""
+    PRESENT = "present"
+    LATE = "late"
+    ABSENT = "absent"
+    EXCUSED = "excused"
+
+    CHOICES = [
+        (UNMARKED, "Not marked"),
+        (PRESENT, "Present"),
+        (LATE, "Late"),
+        (ABSENT, "Absent"),
+        (EXCUSED, "Excused"),
+    ]
 
 #: Roles that appear on the roster emailed to the requesting committee — the
 #: people they will actually meet on the day.

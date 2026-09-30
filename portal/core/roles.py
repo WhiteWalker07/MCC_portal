@@ -218,6 +218,26 @@ def can_edit_venue(roles: PortalRoles, request_obj) -> bool:
     return bool(roles.is_domain_head) and request_obj.tasks.filter(vertical=roles.domain_head_of).exists()
 
 
+def can_call_meeting(roles: PortalRoles) -> bool:
+    """POC, Admin, or a vertical head may call a team meeting — of anyone on the team."""
+    return bool(roles.is_authenticated and (roles.is_staff_side or roles.is_domain_head))
+
+
+def can_manage_meeting(roles: PortalRoles, meeting) -> bool:
+    """
+    Who may edit, cancel or re-assign the MOM of a meeting, and mark its
+    attendance: whoever called it, or the POC/Admin as a fallback.
+    """
+    if not roles.is_authenticated:
+        return False
+    return roles.is_staff_side or roles.email == (meeting.called_by or "").lower()
+
+
+def can_take_attendance(roles: PortalRoles, meeting) -> bool:
+    """Attendance is marked by whoever manages the meeting, once it has started and isn't cancelled."""
+    return can_manage_meeting(roles, meeting) and meeting.has_started and not meeting.is_cancelled
+
+
 def can_strike(roles: PortalRoles, member, color: str = STRIKE_YELLOW) -> bool:
     """
     May this caller manually give `member` a strike of this `color`?

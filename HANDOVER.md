@@ -227,10 +227,38 @@ as an anti-takeover safeguard. Don't rename it to match anyone's real email.
   choice, keeps history).
 - **Models**: `portal/core/models.py` — `PortalSettings`, `PointsScheme`,
   `TaskType`, `PostSlot`, `Platform`, `Committee`, `TeamMember`, `Request`,
-  `SubEvent`, `Task`, `ActivityLog`.
+  `SubEvent`, `Task`, `Meeting`, `MeetingInvite`, `ActivityLog`.
 - **Cross-vertical manual reassignment**: any first-year can be manually
   assigned from any vertical (auto-assignment still skill-matches) —
   `engine/assign.py`'s `eligible_members(require_skill=False)`.
+- **Shooters edit their own work (since 2026-09-29, second batch)**: the
+  Photo/Video Editor is given to the same person as the Photographer/Videographer
+  (skill ignored for the pairing). `Task.paired_task` (editor → shooter) records
+  it; reassigning the shooter moves the editor too unless the editor is DONE or
+  was deliberately given to someone else (`assignment._editors_following`, used by
+  `perform_swap` and `override_proposed_assignee`). "Add a task" for an extra
+  Photographer/Videographer also creates that person's editor
+  (`ui/views.py::assignment_add`). If the shooter is UNFILLED the editor is
+  auto-picked as before.
+- **The Event Coordinator is timed**: due `COORDINATOR_GRACE_HOURS` (12) after the
+  latest deadline of the request's other tasks (event end + 12h if none) —
+  `pipeline.coordinator_deadline` / `refresh_coordinator_deadline` (re-run when a
+  task is added and on a time change). The hourly sweep now marks it LATE. Points
+  stay a flat 20 if on time (no early bonus); after the deadline they follow the
+  late curve from that deadline (`points.overdue_multiplier`: −30%, then −10% per
+  6h, floor 0). Coordinators already in flight keep their old event-end deadline.
+- **Team meetings** (`Meeting`, `MeetingInvite`; `engine/meetings.py`,
+  `ui/meeting_views.py`, `/meetings/`): the POC, Admin or any vertical head calls
+  one for the whole team, chosen verticals (primary or secondary) or chosen
+  people. Anyone "Out of work" or inactive can't be called. Invitees get one
+  threaded `[Meeting]` email plus a Calendar hold (fail-open). Optional
+  minutes-taker + venue booker: auto-picked first-year invitee with the fewest
+  points, the caller can change it; a responsibility, no points. The caller or
+  POC/Admin can edit/cancel **only before it starts** (edit/cancel emails say old
+  calendar entries are stale) and mark attendance **only after it starts**
+  (Present/Late/Absent/Excused). **Absent gives a yellow strike automatically**;
+  changing it away from Absent takes that strike back
+  (`MeetingInvite.strike_given` makes it idempotent and never below zero).
 
 ## Deploying the 2026-09-29 workflow update (lab PC)
 Migrations `0002` (schema — **drops `TeamMember.strikes`**, resetting every
@@ -246,6 +274,14 @@ adds the Task Supervisor task type, stops Vetters being added by hand). In order
 This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
+
+### Second batch (meetings, timed coordinator, paired editors)
+Migration `0004` is schema-only (adds `Task.paired_task`, `Meeting`,
+`MeetingInvite`) — no data step, so nothing changes for requests in flight:
+existing tasks have no pairing, and existing coordinators keep their event-end
+deadline. Same order as above (`backup_db`, `git pull`, `migrate`, restart);
+`seed_real_data` need not be re-run for it. Rehearsed on a scratch copy of the dev
+database (migrate, then seed twice).
 
 ## Testing safely on a machine with live email
 A dev machine whose `.env` has real SMTP credentials *and* a database holding the
