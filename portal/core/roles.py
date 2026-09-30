@@ -236,6 +236,16 @@ def can_edit_venue(roles: PortalRoles, request_obj) -> bool:
     return bool(roles.is_domain_head) and request_obj.tasks.filter(vertical=roles.domain_head_of).exists()
 
 
+def can_view_meetings(roles: PortalRoles) -> bool:
+    """
+    May this account open the Meetings pages at all: team members (who see the
+    meetings they're invited to) and the POC/Admin. One rule for both the menu
+    link and the view, so hiding the link is never the only thing keeping a club
+    or a role-less account out.
+    """
+    return bool(roles.is_authenticated and (roles.is_team or roles.is_staff_side))
+
+
 def can_call_meeting(roles: PortalRoles) -> bool:
     """POC, Admin, or a vertical head may call a team meeting — of anyone on the team."""
     return bool(roles.is_authenticated and (roles.is_staff_side or roles.is_domain_head))

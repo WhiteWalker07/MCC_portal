@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from core.roles import PortalRoles
+from core.roles import PortalRoles, can_view_meetings
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,7 @@ NAV_ITEMS: list[NavItem] = [
     NavItem("tasks", "My Tasks", "Tasks", "task-list", lambda r: r.is_team),
     NavItem("assignments", "Assignments", "Assign", "assignment-list", lambda r: r.can_reach_assignments),
     # Team members see the meetings they're invited to; heads/POC/Admin also call them.
-    NavItem("meetings", "Meetings", "Meets", "meeting-list", lambda r: r.is_team or r.is_staff_side),
+    NavItem("meetings", "Meetings", "Meets", "meeting-list", can_view_meetings),
     NavItem("approvals", "Approvals", "Approve", "approval-list", lambda r: r.is_staff_side),
     NavItem("dashboard", "Dashboard", "Stats", "dashboard", lambda r: r.is_staff_side),
     NavItem("admin", "Admin", "Admin", "portal-admin", lambda r: r.is_staff_side),

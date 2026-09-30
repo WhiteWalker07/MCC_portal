@@ -215,6 +215,84 @@ class MeetingPagesTests(MeetingViewBase):
         self.assertEqual(self.meeting.mom_email, RAVI)
 
 
+class AccessControlTests(MeetingViewBase):
+    """
+    Every meeting URL against every kind of visitor. Hiding the menu link is not
+    access control: each URL has to refuse on its own.
+    """
+
+    def setUp(self):
+        super().setUp()
+        _, self.meeting = self.call_meeting(self.poc)  # called by the POC, inviting Neha and Ravi
+        self.plain = User.objects.create_user("plain", email="plain@iimsirmaur.ac.in")
+        self.bystander = User.objects.create_user("by", email="by@iimsirmaur.ac.in")
+        TeamMember.objects.create(email="by@iimsirmaur.ac.in", name="By", year=1, campus="Permanent")
+        pk = self.meeting.pk
+        self.gets = {
+            "list": reverse("meeting-list"),
+            "new": reverse("meeting-new"),
+            "detail": reverse("meeting-detail", args=[pk]),
+            "edit": reverse("meeting-edit", args=[pk]),
+        }
+        self.posts = {
+            "cancel": reverse("meeting-cancel", args=[pk]),
+            "mom": reverse("meeting-set-mom", args=[pk]),
+            "attendance": reverse("meeting-attendance", args=[pk]),
+        }
+
+    def statuses(self, user):
+        self.client.logout()
+        if user is not None:
+            self.client.force_login(user)
+        out = {name: self.client.get(url).status_code for name, url in self.gets.items()}
+        out.update({name: self.client.post(url).status_code for name, url in self.posts.items()})
+        return out
+
+    def test_a_logged_out_visitor_is_sent_to_sign_in_everywhere(self):
+        self.assertEqual(set(self.statuses(None).values()), {302})
+        for url in (*self.gets.values(), *self.posts.values()):
+            self.assertIn("login", self.client.get(url)["Location"].lower() + self.client.post(url)["Location"].lower())
+
+    def test_an_account_with_no_role_and_a_club_are_refused_everywhere_including_the_list(self):
+        for user in (self.plain, self.club):
+            self.assertEqual(set(self.statuses(user).values()), {403}, user.email)
+
+    def test_a_team_member_who_was_not_invited_sees_only_their_own_empty_list(self):
+        got = self.statuses(self.bystander)
+        self.assertEqual(got["list"], 200)
+        self.assertEqual({v for k, v in got.items() if k != "list"}, {403})
+        self.client.force_login(self.bystander)
+        self.assertNotContains(self.client.get(self.gets["list"]), "Weekly sync")
+
+    def test_an_invited_member_can_only_read(self):
+        got = self.statuses(self.neha)
+        self.assertEqual((got["list"], got["detail"]), (200, 200))
+        self.assertEqual({got[k] for k in ("new", "edit", "cancel", "mom", "attendance")}, {403})
+
+    def test_a_head_who_did_not_call_it_can_call_their_own_but_not_touch_this_one(self):
+        got = self.statuses(self.head)
+        self.assertEqual((got["list"], got["new"]), (200, 200))
+        self.assertEqual({got[k] for k in ("detail", "edit", "cancel", "mom", "attendance")}, {403})
+
+    def test_the_caller_and_poc_can_reach_the_pages(self):
+        got = self.statuses(self.poc)
+        self.assertEqual({got[k] for k in ("list", "new", "detail", "edit")}, {200})
+
+    def test_nothing_changed_while_the_refused_were_knocking(self):
+        for user in (self.plain, self.club, self.bystander, self.neha, self.head):
+            self.statuses(user)
+        self.meeting.refresh_from_db()
+        self.assertFalse(self.meeting.is_cancelled)
+        self.assertEqual(self.meeting.invites.count(), 2)
+
+    def test_the_menu_link_and_the_url_agree(self):
+        for user, allowed in ((self.plain, False), (self.club, False), (self.bystander, True), (self.poc, True)):
+            self.client.force_login(user)
+            in_menu = reverse("meeting-list") in self.client.get(reverse("request-list")).content.decode()
+            reachable = self.client.get(reverse("meeting-list")).status_code == 200
+            self.assertEqual((in_menu, reachable), (allowed, allowed), user.email)
+
+
 class AttendanceViewTests(MeetingViewBase):
     def setUp(self):
         super().setUp()

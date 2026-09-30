@@ -20,7 +20,7 @@ from django.views.decorators.http import require_POST
 
 from core.constants import Attendance
 from core.models import Meeting, TeamMember
-from core.roles import can_call_meeting, can_manage_meeting, can_take_attendance
+from core.roles import can_call_meeting, can_manage_meeting, can_take_attendance, can_view_meetings
 from engine import meetings as engine
 
 from .forms import MeetingForm, MomForm
@@ -47,6 +47,8 @@ def _mom_candidates(members):
 @login_required
 def meeting_list(request):
     roles = request.roles
+    if not can_view_meetings(roles):
+        raise PermissionDenied("Meetings are for the media team.")
     now = timezone.now()
     visible = _visible_meetings(roles).prefetch_related("invites")
     upcoming = sorted((m for m in visible if m.end >= now and not m.is_cancelled), key=lambda m: m.start)
