@@ -24,10 +24,12 @@ from django.db.models import F, Q
 from django.forms import inlineformset_factory
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from core.config import get_points_scheme
 from core.constants import (
+    CAMPUSES,
     DERIVED_EDITOR,
     EDIT_CUTOFF_HOURS,
     SUBEVENT_CUTOFF_HOURS,
@@ -1219,12 +1221,28 @@ def portal_admin(request):
     context = {"tab": tab, "tabs": ADMIN_TABS, "is_admin": request.roles.is_admin, "verticals": VERTICALS}
 
     if tab == "team":
-        members = list(TeamMember.objects.all())
-        strikeable = [m for m in members if m.yellow_strikes > 0 or m.red_strikes > 0]
-        removable = [m for m in members if m.active]
+        everyone = list(TeamMember.objects.all())
+        strikeable = [m for m in everyone if m.yellow_strikes > 0 or m.red_strikes > 0]
+        removable = [m for m in everyone if m.active]
+
+        # The roster can be narrowed by campus / year / vertical, exactly like the
+        # Dashboard (same rule, `member_matches_filters`). Only the table is
+        # filtered: the strike and removal pickers below still list everyone.
+        filters = {
+            "campus": request.GET.get("campus", "all"),
+            "year": request.GET.get("year", "all"),
+            "vertical": request.GET.get("vertical", "all"),
+        }
+        members = [m for m in everyone if dashboard_data.member_matches_filters(m, **filters)]
         context.update(
             {
                 "members": members,
+                "total_members": len(everyone),
+                "filters": filters,
+                "filters_active": any(v != "all" for v in filters.values()),
+                "campuses": CAMPUSES,
+                # Passed back by the row forms so saving a row returns to this same view.
+                "here": request.get_full_path(),
                 "remove_strike_form": RemoveStrikeForm(strikeable=strikeable) if strikeable else None,
                 "remove_from_team_form": RemoveFromTeamForm(removable=removable) if removable else None,
             }
@@ -1420,13 +1438,27 @@ def set_vertical_head(request):
     return redirect("portal-admin")
 
 
+def _back_to_roster(request):
+    """
+    Return to the Admin page after a roster-row action, keeping whatever filters
+    were applied (the row forms send the current URL as `next`). Only a path on
+    this site's own Admin page is honoured, so it can't be used to redirect anywhere else.
+    """
+    target = request.POST.get("next", "")
+    if target.startswith("/portal-admin/") and url_has_allowed_host_and_scheme(
+        target, allowed_hosts={request.get_host()}
+    ):
+        return redirect(target)
+    return redirect("portal-admin")
+
+
 @secretary_or_admin_required
 @require_POST
 def set_availability(request):
     form = AvailabilityForm(request.POST)
     if not form.is_valid():
         messages.error(request, "Pick a member and a status.")
-        return redirect("portal-admin")
+        return _back_to_roster(request)
 
     email = form.cleaned_data["member_email"].strip().lower()
     next_status = form.cleaned_data["availability"]
@@ -1437,7 +1469,7 @@ def set_availability(request):
     get_object_or_404(TeamMember, email=email)
     member = switch_availability(email, next_status, request.roles.email)
     messages.success(request, f"{member.name} marked {'out of work' if next_status == 'out' else 'on work'}.")
-    return redirect("portal-admin")
+    return _back_to_roster(request)
 
 
 @secretary_or_admin_required
@@ -1453,14 +1485,14 @@ def set_member_phone(request):
     form = MemberPhoneForm(request.POST)
     if not form.is_valid():
         messages.error(request, "Enter a valid member and phone number.")
-        return redirect("portal-admin")
+        return _back_to_roster(request)
 
     email = form.cleaned_data["member_email"].strip().lower()
     member = get_object_or_404(TeamMember, email=email)
     member.phone = form.cleaned_data["phone"].strip()
     member.save(update_fields=["phone"])
     messages.success(request, f"Updated {member.name}'s contact number.")
-    return redirect("portal-admin")
+    return _back_to_roster(request)
 
 
 @secretary_or_admin_required
@@ -1478,7 +1510,7 @@ def set_member_verticals(request):
     form = MemberVerticalsForm(request.POST)
     if not form.is_valid():
         messages.error(request, " ".join(form.errors.get("__all__", [])) or "Pick valid verticals.")
-        return redirect("portal-admin")
+        return _back_to_roster(request)
 
     email = form.cleaned_data["member_email"].strip().lower()
     member = get_object_or_404(TeamMember, email=email)
@@ -1500,7 +1532,7 @@ def set_member_verticals(request):
         f"Updated {member.name}'s verticals. (The next deploy re-applies the seed file, "
         "so make the same change in core/seed_data.py to keep it.)",
     )
-    return redirect("portal-admin")
+    return _back_to_roster(request)
 
 
 @login_required

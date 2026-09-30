@@ -226,6 +226,112 @@ class AdminTabsTests(LeaveBase):
         self.assertEqual(self.client.get(reverse("portal-admin")).status_code, 403)
 
 
+class TeamFilterTests(LeaveBase):
+    """The Team tab's campus / year / vertical filters (same rule as the Dashboard)."""
+
+    def setUp(self):
+        super().setUp()
+        mk = lambda e, n, year, campus, vertical="", second="": TeamMember.objects.create(
+            email=e, name=n, year=year, campus=campus, vertical=vertical, secondary_vertical=second
+        )
+        self.a = mk("a@iimsirmaur.ac.in", "MbaPhotoOne", 1, "MBA Campus", "Photography")
+        self.b = mk("b@iimsirmaur.ac.in", "MbaVideoOne", 1, "MBA Campus", "Videography", "Photography")
+        self.c = mk("c@iimsirmaur.ac.in", "MbaPhotoTwo", 2, "MBA Campus", "Photography")
+        self.d = mk("d@iimsirmaur.ac.in", "BmsPhotoOne", 1, "BMS Campus", "Photography")
+
+    def shown(self, **params):
+        self.client.force_login(self.poc)
+        response = self.client.get(reverse("portal-admin"), {"tab": "team", **params})
+        return response, {m.email for m in response.context["members"]}
+
+    def test_no_filter_shows_everyone(self):
+        response, emails = self.shown()
+        self.assertEqual(len(emails), TeamMember.objects.count())
+        self.assertEqual(response.context["total_members"], TeamMember.objects.count())
+        self.assertFalse(response.context["filters_active"])
+
+    def test_by_campus(self):
+        _, emails = self.shown(campus="BMS Campus")
+        self.assertEqual(emails, {self.d.email})
+
+    def test_by_year(self):
+        _, emails = self.shown(year="2")
+        self.assertIn(self.c.email, emails)
+        self.assertNotIn(self.a.email, emails)
+
+    def test_by_vertical_matches_primary_or_secondary(self):
+        _, emails = self.shown(vertical="Photography")
+        # b is Videography first but has Photography as a secondary vertical.
+        self.assertTrue({self.a.email, self.b.email, self.c.email, self.d.email} <= emails)
+        self.assertNotIn(NEHA, emails)  # Graphic Designs
+
+    def test_filters_combine(self):
+        _, emails = self.shown(campus="MBA Campus", year="1", vertical="Photography")
+        self.assertEqual(emails, {self.a.email, self.b.email})
+
+    def test_no_match_says_so(self):
+        response, emails = self.shown(campus="BMS Campus", year="2")
+        self.assertEqual(emails, set())
+        self.assertContains(response, "No members match these filters")
+
+    def test_the_filter_bar_shows_the_selection_count_and_a_clear_link_only_when_filtering(self):
+        page, _ = self.shown()
+        self.assertContains(page, 'name="campus"')
+        self.assertContains(page, 'name="vertical"')
+        self.assertNotContains(page, ">Clear<")
+        page, _ = self.shown(campus="BMS Campus")
+        self.assertContains(page, ">Clear<")
+        self.assertContains(page, "Showing 1 of")
+        self.assertContains(page, '<option value="BMS Campus" selected>')
+
+    def test_a_junk_filter_value_just_matches_nobody_and_does_not_break_the_page(self):
+        response, emails = self.shown(campus="Nowhere", year="x", vertical="Astrology")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(emails, set())
+
+    def test_the_strike_and_removal_pickers_still_list_everyone(self):
+        response, _ = self.shown(campus="BMS Campus")
+        removable = {c[0] for c in response.context["remove_from_team_form"].fields["member_email"].choices}
+        self.assertIn(self.a.email, removable)
+
+    def test_row_forms_carry_the_current_filtered_url_so_saving_returns_to_it(self):
+        response, _ = self.shown(campus="BMS Campus")
+        self.assertContains(response, 'name="next" value="/portal-admin/?tab=team&amp;campus=BMS+Campus"')
+
+    def test_saving_a_row_returns_to_the_same_filtered_view(self):
+        self.client.force_login(self.poc)
+        back = "/portal-admin/?tab=team&campus=BMS%20Campus"
+        response = self.client.post(
+            reverse("set-member-phone"), {"member_email": self.d.email, "phone": "9123456789", "next": back}
+        )
+        self.assertRedirects(response, back, fetch_redirect_response=False)
+        for name, body in (
+            ("set-availability", {"member_email": self.d.email, "availability": "out"}),
+            ("set-member-verticals", {"member_email": self.d.email, "vertical": "Videography", "secondary_vertical": ""}),
+        ):
+            response = self.client.post(reverse(name), {**body, "next": back})
+            self.assertRedirects(response, back, fetch_redirect_response=False, msg_prefix=name)
+
+    def test_only_this_sites_admin_page_is_honoured_as_the_place_to_return_to(self):
+        self.client.force_login(self.poc)
+        for bad in ("https://evil.example/portal-admin/", "//evil.example/portal-admin/", "/requests/", "javascript:alert(1)", ""):
+            response = self.client.post(
+                reverse("set-member-phone"), {"member_email": self.d.email, "phone": "9123456789", "next": bad}
+            )
+            self.assertRedirects(response, reverse("portal-admin"), msg_prefix=repr(bad))
+
+    def test_it_uses_the_same_rule_as_the_dashboard(self):
+        from ui.dashboard import member_matches_filters
+
+        for campus, year, vertical in (("MBA Campus", "1", "Photography"), ("all", "2", "all"), ("BMS Campus", "all", "Videography")):
+            expected = {m.email for m in TeamMember.objects.all() if member_matches_filters(m, campus, year, vertical)}
+            _, emails = self.shown(campus=campus, year=year, vertical=vertical)
+            self.assertEqual(emails, expected)
+        self.client.force_login(self.poc)
+        stats = self.client.get(reverse("dashboard"), {"campus": "MBA Campus", "year": "1", "vertical": "Photography"})
+        self.assertEqual(stats.status_code, 200)
+
+
 class MbaFirstYearMeetingTests(TestCase):
     def setUp(self):
         build_world()

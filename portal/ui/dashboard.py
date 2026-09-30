@@ -34,6 +34,21 @@ def _period_cutoff(period: str) -> datetime | None:
     return None  # "all"
 
 
+def member_matches_filters(member, campus: str = "all", year: str = "all", vertical: str = "all") -> bool:
+    """
+    The one rule for "does this member match the campus / year / vertical filters",
+    shared by the Dashboard and the Admin Team tab so they always agree. A member
+    counts under either of their two verticals; "all" means no filter on that field.
+    """
+    if campus != "all" and (member.campus or "") != campus:
+        return False
+    if str(year) != "all" and str(member.year or "") != str(year):
+        return False
+    if vertical != "all" and not member.in_vertical(vertical):
+        return False
+    return True
+
+
 def compute_stats(filters: dict) -> dict:
     period = filters.get("period", "all")
     campus = filters.get("campus", "all")
@@ -48,14 +63,7 @@ def compute_stats(filters: dict) -> dict:
     def member_matches(member: TeamMember | None) -> bool:
         if member is None:
             return False
-        if campus != "all" and (member.campus or "") != campus:
-            return False
-        if year != "all" and str(member.year or "") != year:
-            return False
-        # A member counts under either of their two verticals.
-        if vertical != "all" and not member.in_vertical(vertical):
-            return False
-        return True
+        return member_matches_filters(member, campus, year, vertical)
 
     filtered_members = [m for m in members if member_matches(m)]
 

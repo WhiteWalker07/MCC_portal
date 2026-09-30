@@ -310,7 +310,10 @@ Migration `0005` is schema-only (`LeaveRequest`). Same deploy order; no seed ste
   through `switch_availability` (day banking + audit log).
 - **Admin page** is tabs (Team | Committees | Setup); `ADMIN_TABS` in `ui/views.py`.
   The current tab is kept in the session so existing redirects return to it. Tests
-  that read the page must request `?tab=...`.
+  that read the page must request `?tab=...`. The Team tab's campus / year /
+  vertical filters (GET params) use `dashboard.member_matches_filters`, the same
+  rule as the Dashboard; the roster-row forms post the current URL as `next` and
+  `_back_to_roster` returns there (only `/portal-admin/...` paths are honoured).
 - **Meetings**: extra invite mode "MBA 1st year" = active, on-work members with
   `year == 1` and `campus == CAMPUS_MBA`.
 
