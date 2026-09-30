@@ -35,7 +35,9 @@ def notify_assignee(task) -> None:
         return
 
     calendar = calendar_service()
-    if task.at_event and task.event_start and task.event_end:
+    # No calendar hold for a multi-day event (whole days, no single window): they
+    # get the deadline reminder instead, like any other task.
+    if task.at_event and task.event_start and task.event_end and not task.request.is_multiday:
         calendar.create_hold(
             email=task.email,
             title=f"{task.ref_code} {task.task} — {task.event_name}",

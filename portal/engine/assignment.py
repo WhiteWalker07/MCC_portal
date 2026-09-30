@@ -121,7 +121,7 @@ def validate_member(
             ),
         )
 
-    if at_event and request_obj.event_start and request_obj.event_end:
+    if at_event and request_obj.event_start and request_obj.event_end and not request_obj.is_multiday:
         free = calendar_service().is_free(address, request_obj.event_start, request_obj.event_end)
         if not free:
             return Validation(ok=False, reason=f"{member.name} is busy during the event window")

@@ -1,0 +1,13 @@
+<div class="stack subevent-row">
+  <div class="grid2">
+    <label class="field"><span class="field__label">Name</span>{{ sub.name }}</label>
+    <label class="field"><span class="field__label">Venue</span>{{ sub.venue }}</label>
+  </div>
+  <div class="grid2">
+    <label class="field"><span class="field__label">Starts</span>{{ sub.start }}</label>
+    <label class="field"><span class="field__label">Ends</span>{{ sub.end }}</label>
+  </div>
+  <label class="field"><span class="field__label">Notes</span>{{ sub.notes }}</label>
+  {% for field in sub %}{% for error in field.errors %}<p class="error">{{ error }}</p>{% endfor %}{% endfor %}
+  {% for error in sub.non_field_errors %}<p class="error">{{ error }}</p>{% endfor %}
+</div>

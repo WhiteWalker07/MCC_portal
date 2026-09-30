@@ -412,6 +412,13 @@ class Request(models.Model):
     content_links = models.TextField(blank=True)
     notes = models.TextField(blank=True)
 
+    is_multiday = models.BooleanField(
+        default=False,
+        help_text="A multi-day Coverage event: only a start and end *date* were given, so it runs from "
+        "the start of the first day to the end of the last, has no single venue (each sub-event has "
+        "its own) and no calendar holds.",
+    )
+
     coordinator_email = models.EmailField(blank=True, db_index=True)
     supervisor_email = models.EmailField(
         blank=True, db_index=True, help_text="The Task Supervisor (Coverage only). Only staff can change it."

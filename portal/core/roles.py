@@ -17,6 +17,7 @@ from .constants import (
     EDIT_CUTOFF_HOURS,
     HOUR,
     STRIKE_YELLOW,
+    SUBEVENT_CUTOFF_HOURS,
     TASK_SUPERVISOR,
     RequestStatus,
     RequestType,
@@ -187,17 +188,34 @@ def _may_amend_schedule(roles: PortalRoles, request_obj) -> bool:
 
 def can_change_event_time(roles: PortalRoles, request_obj) -> bool:
     """
-    May this caller move a Coverage request's start/end *times* (never its
-    dates)? The requesting body, or the POC/Admin, and only while the event is
+    May this caller move a single-day Coverage request's start/end *times* (never
+    its dates)? The requesting body, or the POC/Admin, and only while the event is
     still more than 24 hours away — the moment it is inside that window the
     team is effectively committed and only staff can sort things out by hand.
+
+    A multi-day event has only dates, no times, so there is nothing to change.
     """
+    if request_obj.is_multiday:
+        return False
     return _may_amend_schedule(roles, request_obj)
 
 
 def can_edit_subevents(roles: PortalRoles, request_obj) -> bool:
-    """Who may add, edit or delete a Coverage request's sub-events — same rule as the time."""
-    return _may_amend_schedule(roles, request_obj)
+    """
+    Who may add, edit or delete a Coverage request's sub-events: the requesting
+    body or the POC/Admin. Whether a *particular* sub-event can still be touched
+    is its own cutoff (`subevent_is_open`), not the main event's.
+    """
+    if request_obj.type != RequestType.COVERAGE or request_obj.status in RequestStatus.TERMINAL:
+        return False
+    return roles.is_staff_side or roles.email == (request_obj.contact_email or "").lower()
+
+
+def subevent_is_open(start) -> bool:
+    """True while a sub-event starting at `start` is still more than 48 hours away."""
+    if not start:
+        return False
+    return (start - timezone.now()).total_seconds() / HOUR > SUBEVENT_CUTOFF_HOURS
 
 
 def can_edit_venue(roles: PortalRoles, request_obj) -> bool:

@@ -125,7 +125,10 @@ def eligible_members(
         and m.email.lower() not in excluded
     ]
 
-    if at_event and request_obj.event_start and request_obj.event_end:
+    # A multi-day event is whole days with no single time window, so "is this person
+    # free for it" isn't a meaningful question: nobody's calendar is clear of
+    # everything across several days.
+    if at_event and request_obj.event_start and request_obj.event_end and not request_obj.is_multiday:
         pool = [
             m
             for m in pool

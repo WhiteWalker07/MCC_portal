@@ -30,26 +30,39 @@ You can always:
 
 Everything above, plus:
 
-- **Raise a Coverage request** (`New Request` → Coverage) for an event:
-  name, start/end time, venue, which roles you need covered (photographer,
-  videographer, etc.), and which platforms to post to afterward.
+- **Raise a Coverage request** (`New Request` → Coverage) for an event. First
+  choose its length with the **Single-day event / Multi-day event** toggle, then
+  say which roles you need covered (photographer, videographer, etc.) and which
+  platforms to post to afterward.
+  - **Single-day event:** one venue and one start/end time window.
+  - **Multi-day event:** just a **first day and last day** (no times, no single
+    venue). It runs from the start of the first day to the end of the last, and
+    you add a schedule of **sub-events** (see below).
 - **If your event starts within 48 hours of when you submit**, the request
   is held for Secretary/POC approval instead of auto-proceeding — a
   short-notice sanity check, not a rejection. You'll be notified either way.
-- **Add sub-events** — a schedule inside your event (e.g. "Inauguration,
-  10:00, Auditorium"; "Panel, 11:00, Room 5"). Fill them in on the new-request
-  form, or add, edit and delete them later from the request page. They may
-  fall outside the main event's times. The team covers all of them — they
-  are information for the team, not extra requests.
-- **Edit the venue after submitting**, if it changes at the last minute —
-  open the request from `My Requests` → **Edit venue**. You don't need to
-  contact anyone to fix a last-minute room change.
-- **Change the event's time after submitting** (start and end **time** — the
-  **date can't be changed**) from the request page → **Change time**. The
+- **Sub-events** — the schedule inside a multi-day event (e.g. "Inauguration,
+  Day 1 10:00, Auditorium"; "Panel, Day 2 11:00, Room 5"). On the new-request
+  form press **+ Add a sub-event** for each one; each has a name, its own venue,
+  a start and end, and notes. A multi-day event's sub-events must **fall within
+  its dates**. The team covers all of them — they are information for the team,
+  not extra requests. A single-day event has none when you raise it, but you
+  can add some later.
+- **Add, edit or remove sub-events later** from the request page. Each
+  sub-event has **its own cutoff: until 48 hours before that sub-event starts**
+  (so you can still change Day 3 while Day 1 is under way). Adding one needs its
+  own start to be more than 48 hours away, and you can't drag one into the last
+  48 hours. The Event Coordinator and POC are emailed about every change.
+- **Edit the venue after submitting** (single-day events), if it changes at the
+  last minute — open the request from `My Requests` → **Edit venue**. You don't
+  need to contact anyone to fix a last-minute room change. (A multi-day event
+  has a venue per sub-event instead.)
+- **Change a single-day event's time after submitting** (start and end **time**
+  — the **date can't be changed**) from the request page → **Change time**,
+  **until 24 hours before the event starts**; after that, ask the POC. The
   team, the Task Supervisor and the POC are emailed, and anyone the new time
-  clashes with is flagged to the POC. Both this and sub-event changes are
-  possible **only until 24 hours before the event starts**; after that, ask
-  the POC.
+  clashes with is flagged to the POC. A multi-day event has dates only, so
+  there is no time to change.
 - Every request gets a reference code (e.g. `SAPIENT_7`) — use it when
   following up so people don't have to search by event name.
 

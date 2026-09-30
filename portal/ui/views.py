@@ -30,6 +30,7 @@ from core.config import get_points_scheme
 from core.constants import (
     DERIVED_EDITOR,
     EDIT_CUTOFF_HOURS,
+    SUBEVENT_CUTOFF_HOURS,
     Availability,
     LeaveStatus,
     STRIKE_RED,
@@ -59,6 +60,7 @@ from core.roles import (
     can_edit_venue,
     can_read_request,
     can_strike,
+    subevent_is_open,
 )
 from engine.assign import choose_supervisor, eligible_members
 from engine.assignment import override_proposed_assignee, perform_swap, validate_member
@@ -104,10 +106,11 @@ DAY_SECONDS = 86400
 #: Admin page tabs, in order. The first is the default.
 ADMIN_TABS = [("team", "Team"), ("committees", "Committees"), ("setup", "Setup")]
 
-#: Blank sub-event rows offered on the new-request form. Untouched rows are
-#: skipped on save, so three costs a club nothing if they have no schedule.
+#: Sub-event rows on the new-request form (multi-day events only). One blank row
+#: is offered; the page's "+" button adds more. Untouched rows are skipped on
+#: save, so an unused row costs nothing.
 SubEventFormSet = inlineformset_factory(
-    Request, SubEvent, form=SubEventForm, extra=3, can_delete=False
+    Request, SubEvent, form=SubEventForm, extra=1, can_delete=False
 )
 
 
@@ -182,14 +185,20 @@ def request_new(request):
             available_roles=available_roles,
             available_platforms=available_platforms,
         )
-        subevents = SubEventFormSet(request.POST, prefix="sub", instance=Request())
         form_ok = form.is_valid()
-        # Sub-events belong to Coverage only. They're validated only then, and
-        # only if the browser actually sent the rows (a client that doesn't know
-        # about them simply has none) — never for a Post, whose stray rows are
-        # ignored rather than allowed to fail the whole submission.
+        # Only a multi-day Coverage event has a schedule of sub-events when it is
+        # raised: a single-day event is one venue and one time window (it can gain
+        # sub-events later from its page). They're validated only then, and only
+        # if the browser actually sent the rows — never for a Post or a single-day
+        # event, whose stray rows are ignored rather than allowed to fail the
+        # whole submission. A multi-day event's sub-events must sit inside its dates.
         is_coverage = form_ok and form.cleaned_data.get("type") == RequestType.COVERAGE
-        wants_subevents = is_coverage and "sub-TOTAL_FORMS" in request.POST
+        multiday = is_coverage and form.is_multiday
+        bounds = (form.cleaned_data["start_date"], form.cleaned_data["end_date"]) if multiday else None
+        subevents = SubEventFormSet(
+            request.POST, prefix="sub", instance=Request(), form_kwargs={"bounds": bounds}
+        )
+        wants_subevents = multiday and "sub-TOTAL_FORMS" in request.POST
         subevents_ok = subevents.is_valid() if wants_subevents else True
 
         if form_ok and subevents_ok:
@@ -198,6 +207,7 @@ def request_new(request):
             # taken from the form.
             new_request.contact_email = roles.email
             new_request.status = RequestStatus.NEW
+            new_request.is_multiday = multiday
             new_request.created_at = timezone.now()
             new_request.roles_needed = form.cleaned_data.get("roles_needed") or []
             new_request.platforms = form.cleaned_data.get("platforms") or []
@@ -268,17 +278,21 @@ def request_detail(request, pk):
     )
     can_edit_venue_flag = (
         request_obj.type == RequestType.COVERAGE
+        and not request_obj.is_multiday  # a multi-day event has no single venue
         and request_obj.status != RequestStatus.REJECTED
         and can_edit_venue(request.roles, request_obj)
     )
 
-    # Schedule amendments (event time, sub-events) — Coverage only, and only
-    # while the event is still more than 24 hours away.
+    # Schedule amendments — Coverage only. A single-day event's *time* can change
+    # until 24 hours before it starts; a multi-day event has dates only, so no time
+    # form. Sub-events each have their own cutoff: 48 hours before that sub-event.
     can_edit_schedule = can_change_event_time(request.roles, request_obj)
+    can_amend_subevents = can_edit_subevents(request.roles, request_obj)
     time_form = None
     subevent_rows = []
     subevent_add_form = None
     if request_obj.type == RequestType.COVERAGE:
+        bounds = _multiday_bounds(request_obj)
         if can_edit_schedule:
             time_form = EventTimeForm(
                 initial={
@@ -286,12 +300,18 @@ def request_detail(request, pk):
                     "end_time": timezone.localtime(request_obj.event_end).time(),
                 }
             )
-            subevent_add_form = SubEventForm(prefix="new")
+        if can_amend_subevents:
+            subevent_add_form = SubEventForm(prefix="new", bounds=bounds, enforce_lead=True)
         for sub in request_obj.sub_events.all():
+            open_for_changes = can_amend_subevents and subevent_is_open(sub.start)
             subevent_rows.append(
                 {
                     "sub": sub,
-                    "form": SubEventForm(instance=sub, prefix=f"se{sub.pk}") if can_edit_schedule else None,
+                    "form": SubEventForm(
+                        instance=sub, prefix=f"se{sub.pk}", bounds=bounds, enforce_lead=True
+                    )
+                    if open_for_changes
+                    else None,
                 }
             )
 
@@ -306,6 +326,7 @@ def request_detail(request, pk):
             "venue_form": VenueEditForm(initial={"venue": request_obj.venue}),
             "stages": _stepper(request_obj.status),
             "can_edit_schedule": can_edit_schedule,
+            "can_amend_subevents": can_amend_subevents,
             "time_form": time_form,
             "subevent_rows": subevent_rows,
             "subevent_add_form": subevent_add_form,
@@ -329,6 +350,8 @@ def request_edit_venue(request, pk):
     request_obj = get_object_or_404(Request, pk=pk)
     if request_obj.type != RequestType.COVERAGE:
         raise PermissionDenied("Only Coverage requests have a venue.")
+    if request_obj.is_multiday:
+        raise PermissionDenied("A multi-day event has no single venue — each sub-event has its own.")
     if request_obj.status == RequestStatus.REJECTED:
         raise PermissionDenied("This request has been rejected.")
     if not can_edit_venue(request.roles, request_obj):
@@ -396,6 +419,8 @@ def request_edit_time(request, pk):
     request_obj = get_object_or_404(Request, pk=pk)
     if request_obj.type != RequestType.COVERAGE:
         raise PermissionDenied("Only Coverage requests have an event time.")
+    if request_obj.is_multiday:
+        raise PermissionDenied("A multi-day event has dates only, no times to change.")
     if not can_change_event_time(request.roles, request_obj):
         raise PermissionDenied(
             "The time can only be changed by the requesting body, and only while the event is "
@@ -447,18 +472,36 @@ def _subevent_request(request, pk) -> Request:
     """Load the request a sub-event view acts on, or raise if the caller can't amend its schedule."""
     request_obj = get_object_or_404(Request, pk=pk)
     if not can_edit_subevents(request.roles, request_obj):
-        raise PermissionDenied(
-            "Sub-events can only be changed by the requesting body, and only while the event is "
-            "more than 24 hours away."
-        )
+        raise PermissionDenied("Sub-events can only be changed by the requesting body or the POC/Admin.")
     return request_obj
+
+
+def _multiday_bounds(request_obj):
+    """(first date, last date) of a multi-day event, else None — its sub-events must fall inside."""
+    if not request_obj.is_multiday or not request_obj.event_start or not request_obj.event_end:
+        return None
+    return (
+        timezone.localtime(request_obj.event_start).date(),
+        timezone.localtime(request_obj.event_end).date(),
+    )
+
+
+def _too_late_for_subevent(request, request_obj) -> "HttpResponseRedirect":
+    messages.error(
+        request,
+        f"A sub-event can only be added, changed or removed until {SUBEVENT_CUTOFF_HOURS} hours "
+        "before it starts. Contact the POC for anything later.",
+    )
+    return redirect("request-detail", pk=request_obj.pk)
 
 
 @login_required
 @require_POST
 def request_subevent_add(request, pk):
     request_obj = _subevent_request(request, pk)
-    form = SubEventForm(request.POST, prefix="new")
+    form = SubEventForm(
+        request.POST, prefix="new", bounds=_multiday_bounds(request_obj), enforce_lead=True
+    )
     if not form.is_valid():
         messages.error(request, "Couldn't add that sub-event: " + _first_error(form))
         return redirect("request-detail", pk=request_obj.pk)
@@ -475,7 +518,14 @@ def request_subevent_add(request, pk):
 def request_subevent_edit(request, pk, sub_pk):
     request_obj = _subevent_request(request, pk)
     sub = get_object_or_404(SubEvent, pk=sub_pk, request=request_obj)
-    form = SubEventForm(request.POST, instance=sub, prefix=f"se{sub.pk}")
+    # Judged on the start it has *now* (before the form overwrites it), and the new
+    # start is checked by the form too, so a sub-event can't be dragged into the
+    # last 48 hours to dodge the cutoff.
+    if not subevent_is_open(sub.start):
+        return _too_late_for_subevent(request, request_obj)
+    form = SubEventForm(
+        request.POST, instance=sub, prefix=f"se{sub.pk}", bounds=_multiday_bounds(request_obj), enforce_lead=True
+    )
     if not form.is_valid():
         messages.error(request, "Couldn't update that sub-event: " + _first_error(form))
         return redirect("request-detail", pk=request_obj.pk)
@@ -491,6 +541,8 @@ def request_subevent_edit(request, pk, sub_pk):
 def request_subevent_delete(request, pk, sub_pk):
     request_obj = _subevent_request(request, pk)
     sub = get_object_or_404(SubEvent, pk=sub_pk, request=request_obj)
+    if not subevent_is_open(sub.start):
+        return _too_late_for_subevent(request, request_obj)
     # Keep a copy for the notification: once deleted, the row's details are gone.
     snapshot = SubEvent(name=sub.name, start=sub.start, end=sub.end, venue=sub.venue, notes=sub.notes)
     sub.delete()

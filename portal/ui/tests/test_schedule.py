@@ -76,11 +76,14 @@ class ScheduleBase(TestCase):
 
 
 class SubEventAtCreationTests(ScheduleBase):
+    """Only a multi-day event has a schedule of sub-events when it is raised."""
+
     def post_form(self, **extra):
+        first = local(self.start).date()
         body = {
-            "type": "Coverage", "event_name": "Annual Fest", "event_start": fmt(self.start),
-            "event_end": fmt(self.end), "venue": "Auditorium", "roles_needed": ["Photographer"],
-            "platforms": ["Instagram"], "requester": "Marketing",
+            "type": "Coverage", "event_name": "Annual Fest", "event_kind": "multi",
+            "start_date": first.isoformat(), "end_date": (first + timedelta(days=2)).isoformat(),
+            "roles_needed": ["Photographer"], "platforms": ["Instagram"], "requester": "Marketing",
         }
         body.update(extra)
         self.client.force_login(self.club)
@@ -90,11 +93,12 @@ class SubEventAtCreationTests(ScheduleBase):
         response = self.post_form(
             **sub_rows(
                 {"name": "Inauguration", "start": fmt(self.start), "end": fmt(self.start + timedelta(hours=1)), "venue": "Hall A"},
-                {"name": "Panel", "start": fmt(self.start + timedelta(hours=1)), "end": fmt(self.end), "notes": "guests at 10:45"},
+                {"name": "Panel", "start": fmt(self.start + timedelta(days=1)), "end": fmt(self.start + timedelta(days=1, hours=2)), "notes": "guests at 10:45"},
             )
         )
         request_obj = Request.objects.get(event_name="Annual Fest")
         self.assertRedirects(response, reverse("request-detail", args=[request_obj.pk]))
+        self.assertTrue(request_obj.is_multiday)
         self.assertEqual(
             list(request_obj.sub_events.values_list("name", flat=True)), ["Inauguration", "Panel"]
         )
@@ -108,10 +112,14 @@ class SubEventAtCreationTests(ScheduleBase):
         self.post_form()
         self.assertTrue(Request.objects.filter(event_name="Annual Fest").exists())
 
-    def test_sub_events_may_fall_outside_the_main_events_window(self):
-        early = self.start - timedelta(hours=3)
-        self.post_form(**sub_rows({"name": "Setup", "start": fmt(early), "end": fmt(early + timedelta(hours=1))}))
-        self.assertEqual(SubEvent.objects.get().name, "Setup")
+    def test_sub_events_must_fall_inside_the_main_events_dates(self):
+        early = self.start - timedelta(days=1)  # the day before the first day
+        response = self.post_form(
+            **sub_rows({"name": "Setup", "start": fmt(early), "end": fmt(early + timedelta(hours=1))})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "must fall within the event")
+        self.assertFalse(Request.objects.filter(event_name="Annual Fest").exists())
 
     def test_a_sub_event_must_end_after_it_starts(self):
         response = self.post_form(
@@ -140,12 +148,14 @@ class SubEventAtCreationTests(ScheduleBase):
         self.assertTrue(Request.objects.filter(event_name="Launch").exists())
 
     def test_the_approval_email_lists_the_schedule(self):
-        # Short notice, so the POC is emailed for approval — with the sub-events.
-        soon = timezone.now() + timedelta(hours=6)
+        # Starting today is short notice, so the POC is emailed for approval — with
+        # the sub-events.
+        today = timezone.localdate()
+        midday = timezone.make_aware(datetime.combine(today, datetime.min.time().replace(hour=12)))
         mail.outbox.clear()
         self.post_form(
-            event_start=fmt(soon), event_end=fmt(soon + timedelta(hours=2)),
-            **sub_rows({"name": "Opening", "start": fmt(soon), "end": fmt(soon + timedelta(hours=1))}),
+            start_date=today.isoformat(), end_date=(today + timedelta(days=1)).isoformat(),
+            **sub_rows({"name": "Opening", "start": fmt(midday), "end": fmt(midday + timedelta(hours=1))}),
         )
         notice = next(m for m in mail.outbox if "[Approval needed]" in m.subject)
         self.assertIn("Sub-events:", notice.body)
@@ -204,11 +214,12 @@ class SubEventAfterSubmissionTests(ScheduleBase):
         self.assertEqual(self.client.post(self.add_url, self.body).status_code, 403)
         self.assertEqual(self.request.sub_events.count(), 0)
 
-    def test_locked_once_the_event_is_within_24_hours(self):
-        soon = timezone.now() + timedelta(hours=10)
-        Request.objects.filter(pk=self.request.pk).update(event_start=soon, event_end=soon + timedelta(hours=2))
+    def test_a_sub_event_starting_within_48_hours_cannot_be_added(self):
+        soon = timezone.now() + timedelta(hours=30)
+        body = {**self.body, "new-start": fmt(soon), "new-end": fmt(soon + timedelta(hours=1))}
         self.client.force_login(self.club)
-        self.assertEqual(self.client.post(self.add_url, self.body).status_code, 403)
+        response = self.client.post(self.add_url, body, follow=True)
+        self.assertContains(response, "48 hours")
         self.assertEqual(self.request.sub_events.count(), 0)
 
     def test_an_invalid_sub_event_is_refused_with_a_message(self):
@@ -224,12 +235,60 @@ class SubEventAfterSubmissionTests(ScheduleBase):
         response = self.client.post(reverse("request-subevent-add", args=[post.pk]), self.body)
         self.assertEqual(response.status_code, 403)
 
-    def test_detail_page_shows_the_controls_only_while_editable(self):
+    def test_detail_page_offers_the_add_form_and_edits_only_sub_events_still_48_hours_away(self):
+        far = SubEvent.objects.create(
+            request=self.request, name="Far", start=timezone.now() + timedelta(days=5),
+            end=timezone.now() + timedelta(days=5, hours=1),
+        )
+        near = SubEvent.objects.create(
+            request=self.request, name="Near", start=timezone.now() + timedelta(hours=20),
+            end=timezone.now() + timedelta(hours=21),
+        )
+        self.client.force_login(self.club)
+        page = self.client.get(reverse("request-detail", args=[self.request.pk]))
+        self.assertContains(page, "Add a sub-event")
+        self.assertContains(page, f'name="se{far.pk}-name"')  # editable
+        self.assertNotContains(page, f'name="se{near.pk}-name"')  # too close: shown read-only
+        self.assertContains(page, "Near")
+
+    def test_a_close_sub_event_cannot_be_edited_or_deleted(self):
+        near = SubEvent.objects.create(
+            request=self.request, name="Near", start=timezone.now() + timedelta(hours=20),
+            end=timezone.now() + timedelta(hours=21),
+        )
+        self.client.force_login(self.club)
+        edit = {
+            f"se{near.pk}-name": "Changed", f"se{near.pk}-start": fmt(near.start),
+            f"se{near.pk}-end": fmt(near.end), f"se{near.pk}-venue": "", f"se{near.pk}-notes": "",
+        }
+        self.client.post(reverse("request-subevent-edit", args=[self.request.pk, near.pk]), edit)
+        self.client.post(reverse("request-subevent-delete", args=[self.request.pk, near.pk]))
+        near.refresh_from_db()
+        self.assertEqual(near.name, "Near")
+
+    def test_a_far_sub_event_cannot_be_dragged_into_the_last_48_hours(self):
+        far = SubEvent.objects.create(
+            request=self.request, name="Far", start=timezone.now() + timedelta(days=5),
+            end=timezone.now() + timedelta(days=5, hours=1),
+        )
+        soon = timezone.now() + timedelta(hours=20)
+        self.client.force_login(self.club)
+        self.client.post(
+            reverse("request-subevent-edit", args=[self.request.pk, far.pk]),
+            {
+                f"se{far.pk}-name": "Far", f"se{far.pk}-start": fmt(soon),
+                f"se{far.pk}-end": fmt(soon + timedelta(hours=1)), f"se{far.pk}-venue": "", f"se{far.pk}-notes": "",
+            },
+        )
+        far.refresh_from_db()
+        self.assertGreater(far.start, timezone.now() + timedelta(days=4))
+
+    def test_the_main_events_24_hour_cutoff_no_longer_hides_the_sub_event_form(self):
+        # Sub-events are governed by their own 48-hour cutoff, not the main event's.
+        tomorrow = timezone.now() + timedelta(hours=10)
+        Request.objects.filter(pk=self.request.pk).update(event_start=tomorrow, event_end=tomorrow + timedelta(hours=2))
         self.client.force_login(self.club)
         self.assertContains(self.client.get(reverse("request-detail", args=[self.request.pk])), "Add a sub-event")
-        soon = timezone.now() + timedelta(hours=10)
-        Request.objects.filter(pk=self.request.pk).update(event_start=soon, event_end=soon + timedelta(hours=2))
-        self.assertNotContains(self.client.get(reverse("request-detail", args=[self.request.pk])), "Add a sub-event")
 
 
 class EventTimeChangeViewTests(ScheduleBase):

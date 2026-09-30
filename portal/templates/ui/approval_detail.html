@@ -14,9 +14,14 @@
     <div><dt>Type</dt><dd>{{ request_obj.type }}</dd></div>
     <div><dt>Requested by</dt><dd>{{ request_obj.contact_email }}</dd></div>
     {% if request_obj.type == "Coverage" %}
-      <div><dt>Start</dt><dd>{{ request_obj.event_start|date:"d M Y, H:i" }}</dd></div>
-      <div><dt>End</dt><dd>{{ request_obj.event_end|date:"d M Y, H:i" }}</dd></div>
-      <div><dt>Venue</dt><dd>{{ request_obj.venue|default:"—" }}</dd></div>
+      {% if request_obj.is_multiday %}
+        <div><dt>Dates</dt><dd>{{ request_obj.event_start|date:"D d M" }} – {{ request_obj.event_end|date:"D d M Y" }} <span class="muted">(multi-day)</span></dd></div>
+        <div><dt>Venue</dt><dd class="muted">Each sub-event has its own (below)</dd></div>
+      {% else %}
+        <div><dt>Start</dt><dd>{{ request_obj.event_start|date:"d M Y, H:i" }}</dd></div>
+        <div><dt>End</dt><dd>{{ request_obj.event_end|date:"d M Y, H:i" }}</dd></div>
+        <div><dt>Venue</dt><dd>{{ request_obj.venue|default:"—" }}</dd></div>
+      {% endif %}
     {% endif %}
   </dl>
 

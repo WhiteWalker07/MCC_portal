@@ -30,23 +30,57 @@
     {% for error in form.event_name.errors %}<p class="error">{{ error }}</p>{% endfor %}
 
     <div id="coverage-fields" class="stack" {% if form.type.value != "Coverage" %}hidden{% endif %}>
-      <div class="grid2">
+      {% with kind=form.event_kind.value|default:"single" %}
+      <fieldset class="seg">
+        <legend class="field__label">Event length</legend>
+        {% for radio in form.event_kind %}
+          <label class="seg__opt">{{ radio.tag }} {{ radio.choice_label }}</label>
+        {% endfor %}
+      </fieldset>
+
+      <div id="single-fields" class="stack" {% if kind == "multi" %}hidden{% endif %}>
+        <div class="grid2">
+          <label class="field">
+            <span class="field__label">Event start</span>
+            {{ form.event_start }}
+          </label>
+          <label class="field">
+            <span class="field__label">Event end</span>
+            {{ form.event_end }}
+          </label>
+        </div>
+        {% for error in form.event_start.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        {% for error in form.event_end.errors %}<p class="error">{{ error }}</p>{% endfor %}
+
         <label class="field">
-          <span class="field__label">Event start</span>
-          {{ form.event_start }}
-        </label>
-        <label class="field">
-          <span class="field__label">Event end</span>
-          {{ form.event_end }}
+          <span class="field__label">Venue</span>
+          <input class="input" type="text" name="venue" value="{{ form.venue.value|default:'' }}" autocomplete="off" />
         </label>
       </div>
-      {% for error in form.event_start.errors %}<p class="error">{{ error }}</p>{% endfor %}
-      {% for error in form.event_end.errors %}<p class="error">{{ error }}</p>{% endfor %}
 
-      <label class="field">
-        <span class="field__label">Venue</span>
-        <input class="input" type="text" name="venue" value="{{ form.venue.value|default:'' }}" autocomplete="off" />
-      </label>
+      <div id="multi-fields" class="stack" {% if kind != "multi" %}hidden{% endif %}>
+        <div class="grid2">
+          <label class="field"><span class="field__label">First day</span>{{ form.start_date }}</label>
+          <label class="field"><span class="field__label">Last day</span>{{ form.end_date }}</label>
+        </div>
+        {% for error in form.start_date.errors %}<p class="error">{{ error }}</p>{% endfor %}
+        {% for error in form.end_date.errors %}<p class="error">{{ error }}</p>{% endfor %}
+
+        <fieldset class="field">
+          <legend class="field__label">Sub-events <span class="muted">(the schedule inside the event)</span></legend>
+          <p class="muted">Add each part of the event with its own venue and time, e.g. "Inauguration, Day 1 10:00,
+            Auditorium". They must fall within the dates above. Press <strong>+</strong> for another. You can add, edit or
+            remove them later, until 48 hours before each one starts.</p>
+          {{ subevents.management_form }}
+          <div id="sub-rows" class="stack">
+            {% for sub in subevents %}{% include "ui/_subevent_row.html" with sub=sub %}{% endfor %}
+          </div>
+          {% for error in subevents.non_form_errors %}<p class="error">{{ error }}</p>{% endfor %}
+          <template id="sub-template">{% include "ui/_subevent_row.html" with sub=subevents.empty_form %}</template>
+          <div class="row"><button type="button" id="add-sub" class="btn btn--sm">+ Add a sub-event</button></div>
+        </fieldset>
+      </div>
+      {% endwith %}
 
       <fieldset class="field">
         <legend class="field__label">Roles needed</legend>
@@ -59,30 +93,6 @@
           {% endfor %}
         </div>
         {% for error in form.roles_needed.errors %}<p class="error">{{ error }}</p>{% endfor %}
-      </fieldset>
-
-      <fieldset class="field">
-        <legend class="field__label">Sub-events <span class="muted">(optional schedule inside the event — leave unused rows blank)</span></legend>
-        <p class="muted">Add anything the team should know is happening within the event, e.g.
-          "Inauguration, 10:00, Auditorium". They may fall outside the main event's times. You can
-          add, edit or remove them later until 24 hours before the event.</p>
-        {{ subevents.management_form }}
-        {% for sub in subevents %}
-          <div class="stack subevent-row">
-            <div class="grid2">
-              <label class="field"><span class="field__label">Name</span>{{ sub.name }}</label>
-              <label class="field"><span class="field__label">Venue</span>{{ sub.venue }}</label>
-            </div>
-            <div class="grid2">
-              <label class="field"><span class="field__label">Starts</span>{{ sub.start }}</label>
-              <label class="field"><span class="field__label">Ends</span>{{ sub.end }}</label>
-            </div>
-            <label class="field"><span class="field__label">Notes</span>{{ sub.notes }}</label>
-            {% for field in sub %}{% for error in field.errors %}<p class="error">{{ error }}</p>{% endfor %}{% endfor %}
-            {% for error in sub.non_field_errors %}<p class="error">{{ error }}</p>{% endfor %}
-          </div>
-        {% endfor %}
-        {% for error in subevents.non_form_errors %}<p class="error">{{ error }}</p>{% endfor %}
       </fieldset>
     </div>
 
@@ -122,4 +132,34 @@
     </div>
   </form>
 </section>
+
+<script>
+  // Single-day / multi-day toggle, and the "+" button that adds another sub-event row.
+  (function () {
+    var single = document.getElementById("single-fields");
+    var multi = document.getElementById("multi-fields");
+    function sync() {
+      var picked = document.querySelector('input[name="event_kind"]:checked');
+      var isMulti = picked && picked.value === "multi";
+      single.hidden = isMulti;
+      multi.hidden = !isMulti;
+    }
+    document.querySelectorAll('input[name="event_kind"]').forEach(function (r) {
+      r.addEventListener("change", sync);
+    });
+    sync();
+
+    var add = document.getElementById("add-sub");
+    var rows = document.getElementById("sub-rows");
+    var template = document.getElementById("sub-template");
+    var total = document.getElementById("id_sub-TOTAL_FORMS");
+    if (add && rows && template && total) {
+      add.addEventListener("click", function () {
+        var n = parseInt(total.value, 10);
+        rows.insertAdjacentHTML("beforeend", template.innerHTML.replace(/__prefix__/g, n));
+        total.value = n + 1;
+      });
+    }
+  })();
+</script>
 {% endblock %}

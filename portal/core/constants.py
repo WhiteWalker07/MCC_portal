@@ -9,6 +9,8 @@ strings scattered through `server/src/services/workflow.ts`) so behaviour and
 any exported data line up exactly.
 """
 
+from datetime import time
+
 
 class RequestType:
     COVERAGE = "Coverage"
@@ -172,9 +174,18 @@ STRIKE_YELLOW = "yellow"
 STRIKE_RED = "red"
 STRIKE_CHOICES = [(STRIKE_YELLOW, "Yellow (warning)"), (STRIKE_RED, "Red (serious)")]
 
-#: A club may change an event's time, or its sub-events, only while the event
-#: is still more than this many hours away.
+#: A club may change a single-day event's *time* only while the event is still
+#: more than this many hours away.
 EDIT_CUTOFF_HOURS = 24
+
+#: A multi-day event is given as dates only; it is treated as running from 00:00
+#: on the first date to this time on the last date.
+MULTIDAY_END_TIME = time(23, 59)
+
+#: Sub-events have a cutoff of their own: one can be added, edited or deleted
+#: only while *that sub-event* is still more than this many hours away, however
+#: far through the main event we are. Adding one means its own start is checked.
+SUBEVENT_CUTOFF_HOURS = 48
 
 #: The Event Coordinator is due this many hours after the last deadline of the
 #: request's other tasks (or after the event end if it has none). Finishing

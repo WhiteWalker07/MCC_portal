@@ -11,18 +11,26 @@ has to remember.
 
 from __future__ import annotations
 
+from datetime import datetime, time
+
 from django import forms
 from django.utils import timezone
 
 from core.constants import (
     CAMPUSES,
     COMMITTEE_TYPES,
+    MULTIDAY_END_TIME,
     STRIKE_CHOICES,
     STRIKE_YELLOW,
+    SUBEVENT_CUTOFF_HOURS,
     VERTICALS,
     RequestType,
 )
 from core.models import Committee, PointsScheme, Request, SubEvent
+from core.roles import subevent_is_open
+
+EVENT_SINGLE = "single"
+EVENT_MULTI = "multi"
 
 
 class DateTimeLocalInput(forms.DateTimeInput):
@@ -117,6 +125,28 @@ class RequestForm(forms.ModelForm):
             label="Post to",
         )
 
+        # Single-day events give one venue and one start/end window. Multi-day events
+        # give only a first and last *date*; their schedule is the sub-events.
+        self.fields["event_kind"] = forms.ChoiceField(
+            choices=[(EVENT_SINGLE, "Single-day event"), (EVENT_MULTI, "Multi-day event")],
+            initial=EVENT_SINGLE,
+            required=False,
+            widget=forms.RadioSelect,
+            label="Event length",
+        )
+        self.fields["start_date"] = forms.DateField(
+            required=False,
+            label="First day",
+            widget=forms.DateInput(attrs={"type": "date", "class": "input"}, format="%Y-%m-%d"),
+        )
+        self.fields["end_date"] = forms.DateField(
+            required=False,
+            label="Last day",
+            widget=forms.DateInput(attrs={"type": "date", "class": "input"}, format="%Y-%m-%d"),
+        )
+        #: Set by `clean` for a valid multi-day Coverage request.
+        self.is_multiday = False
+
         for name in ("event_start", "event_end", "venue"):
             self.fields[name].required = False
 
@@ -129,21 +159,10 @@ class RequestForm(forms.ModelForm):
                 raise forms.ValidationError(
                     "Coverage requests are reserved to committee accounts."
                 )
-            start = cleaned.get("event_start")
-            end = cleaned.get("event_end")
-            if not start:
-                self.add_error("event_start", "When does the event start?")
-            elif start < timezone.now():
-                # A past event start is never intentional — it's a mistyped
-                # date, not a real short-notice request — and letting it
-                # through just meant it silently landed in the <48h approval
-                # gate looking like a legitimate rush job (event_start being
-                # before submission trivially satisfies "starts within 48h").
-                self.add_error("event_start", "Event start can't be in the past — check the date.")
-            if not end:
-                self.add_error("event_end", "When does the event end?")
-            if start and end and end <= start:
-                self.add_error("event_end", "The event must end after it starts.")
+            if (cleaned.get("event_kind") or EVENT_SINGLE) == EVENT_MULTI:
+                self._clean_multiday(cleaned)
+            else:
+                self._clean_single_day(cleaned)
             if not cleaned.get("roles_needed"):
                 self.add_error("roles_needed", "Pick at least one role you need.")
         else:
@@ -156,6 +175,44 @@ class RequestForm(forms.ModelForm):
                 self.add_error("platforms", "Pick at least one platform to post to.")
 
         return cleaned
+
+    def _clean_single_day(self, cleaned) -> None:
+        start = cleaned.get("event_start")
+        end = cleaned.get("event_end")
+        if not start:
+            self.add_error("event_start", "When does the event start?")
+        elif start < timezone.now():
+            # A past event start is never intentional — it's a mistyped
+            # date, not a real short-notice request — and letting it
+            # through just meant it silently landed in the <48h approval
+            # gate looking like a legitimate rush job (event_start being
+            # before submission trivially satisfies "starts within 48h").
+            self.add_error("event_start", "Event start can't be in the past — check the date.")
+        if not end:
+            self.add_error("event_end", "When does the event end?")
+        if start and end and end <= start:
+            self.add_error("event_end", "The event must end after it starts.")
+
+    def _clean_multiday(self, cleaned) -> None:
+        """
+        Turn a first and last date into the event's start and end: midnight at the
+        start of the first day to the end of the last (`MULTIDAY_END_TIME`). There
+        is no single venue — each sub-event carries its own.
+        """
+        first, last = cleaned.get("start_date"), cleaned.get("end_date")
+        if not first:
+            self.add_error("start_date", "What is the first day of the event?")
+        elif first < timezone.localdate():
+            self.add_error("start_date", "The first day can't be in the past — check the date.")
+        if not last:
+            self.add_error("end_date", "What is the last day of the event?")
+        elif first and last < first:
+            self.add_error("end_date", "The event can't end before it starts.")
+        if first and last and not self.errors:
+            cleaned["event_start"] = timezone.make_aware(datetime.combine(first, time.min))
+            cleaned["event_end"] = timezone.make_aware(datetime.combine(last, MULTIDAY_END_TIME))
+            cleaned["venue"] = ""
+            self.is_multiday = True
 
 
 class ProfilePhoneForm(forms.Form):
@@ -216,13 +273,35 @@ class SubEventForm(forms.ModelForm):
             "notes": forms.TextInput(attrs={"class": "input", "placeholder": "Notes for the team (optional)"}),
         }
 
+    def __init__(self, *args, bounds=None, enforce_lead: bool = False, **kwargs):
+        """
+        `bounds` is the (first date, last date) of a multi-day event: its sub-events
+        must fall inside them. A single-day event passes none, so its sub-events
+        stay free. `enforce_lead` applies the 48-hour cutoff to this sub-event's
+        own start (used when adding or editing after submission, not at creation).
+        """
+        super().__init__(*args, **kwargs)
+        self.bounds = bounds
+        self.enforce_lead = enforce_lead
+
     def clean(self):
         cleaned = super().clean()
         start, end = cleaned.get("start"), cleaned.get("end")
-        # Sub-events may sit outside the main event's window — only their own
-        # start/end have to make sense.
         if start and end and end <= start:
             self.add_error("end", "A sub-event must end after it starts.")
+        if self.bounds and start and end:
+            first, last = self.bounds
+            if timezone.localtime(start).date() < first or timezone.localtime(end).date() > last:
+                self.add_error(
+                    "start",
+                    f"A sub-event must fall within the event's dates ({first:%d %b} – {last:%d %b %Y}).",
+                )
+        if self.enforce_lead and start and not subevent_is_open(start):
+            self.add_error(
+                "start",
+                f"Sub-events can only be added or changed until {SUBEVENT_CUTOFF_HOURS} hours before "
+                "they start.",
+            )
         return cleaned
 
 
