@@ -210,14 +210,67 @@
   <details class="fold">
     <summary>Point scheme</summary>
     {% if point_form %}
-      <p class="muted">Base points per role and the completion-timing bonus and penalties. Changes apply to work completed afterwards.</p>
-      <form method="post" action="{% url 'point-scheme' %}" class="scheme-grid">
+      <p class="muted">Points are earned when a task is <strong>completed</strong>, never when it's assigned. They start at the base
+        value, then finishing early adds a bonus and finishing late takes a penalty off. Changes apply only to work completed
+        afterwards; points already awarded aren't re-scored.</p>
+
+      <form method="post" action="{% url 'point-scheme' %}" class="stack">
         {% csrf_token %}
-        {% for field in point_form %}
-          <label class="field"><span class="field__label">{{ field.label }}</span>{{ field }}</label>
-        {% endfor %}
+
+        <fieldset class="stack">
+          <legend class="field__label">1. Base points</legend>
+          <div class="grid2">
+            {% include "ui/_scheme_field.html" with field=point_form.coordinator_points %}
+            {% include "ui/_scheme_field.html" with field=point_form.domain_task_points %}
+            {% include "ui/_scheme_field.html" with field=point_form.vetter_points %}
+          </div>
+          <p class="muted"><strong>Task Supervisor:</strong> always 0 &mdash; supervising is a duty, not scored work, so it isn't editable.</p>
+        </fieldset>
+
+        <fieldset class="stack">
+          <legend class="field__label">2. Early bonus</legend>
+          <p class="muted">The clock starts when the event ends (Coverage) or when a Post was requested. The Event Coordinator gets no early bonus.</p>
+          <div class="grid2">
+            {% include "ui/_scheme_field.html" with field=point_form.early_window_hours %}
+            {% include "ui/_scheme_field.html" with field=point_form.early_bonus_pct %}
+          </div>
+        </fieldset>
+
+        <fieldset class="stack">
+          <legend class="field__label">3. Late penalty</legend>
+          <p class="muted">The Event Coordinator is judged against its own deadline ({{ coordinator_grace_hours }} hours after the request's last task) with this same curve.</p>
+          <div class="grid2">
+            {% include "ui/_scheme_field.html" with field=point_form.late_threshold_hours %}
+            {% include "ui/_scheme_field.html" with field=point_form.late_penalty_pct %}
+            {% include "ui/_scheme_field.html" with field=point_form.subsequent_delay_hours %}
+            {% include "ui/_scheme_field.html" with field=point_form.subsequent_penalty_pct %}
+          </div>
+        </fieldset>
+
         <div class="row"><button type="submit" class="btn btn--primary">Save scheme</button></div>
       </form>
+
+      {% if examples %}
+        <h3 class="h2">What the saved values pay</h3>
+        <div class="grid2">
+          <div style="overflow-x:auto">
+            <table class="roster">
+              <caption class="muted">A normal task ({{ examples.base }} base points)</caption>
+              <thead><tr><th>Finished</th><th>Effect</th><th>Points</th></tr></thead>
+              <tbody>{% for label, effect, pts in examples.task_rows %}<tr><td>{{ label }}</td><td>{{ effect }}</td><td>{{ pts }}</td></tr>{% endfor %}</tbody>
+            </table>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="roster">
+              <caption class="muted">Event Coordinator</caption>
+              <thead><tr><th>Finished</th><th>Effect</th><th>Points</th></tr></thead>
+              <tbody>{% for label, effect, pts in examples.coordinator_rows %}<tr><td>{{ label }}</td><td>{{ effect }}</td><td>{{ pts }}</td></tr>{% endfor %}</tbody>
+            </table>
+          </div>
+        </div>
+        <p class="muted">Hours are counted after the event ends (a Post: after it was requested). These rows are worked out from the values
+          saved above, using the same code that awards the points.</p>
+      {% endif %}
     {% else %}
       <p class="muted">Only admins can view or edit the point scheme.</p>
     {% endif %}

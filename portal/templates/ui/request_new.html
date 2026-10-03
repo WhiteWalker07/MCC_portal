@@ -3,10 +3,25 @@
 {% block content %}
 <section class="card stack">
   <h1>New Request</h1>
+  {% if on_behalf %}
+    <p class="note">Creating this request <strong>for {{ on_behalf.name }}</strong> ({{ on_behalf.acronym }}). It is accepted
+      straight away and the club is emailed. <a href="{% url 'request-new' %}">Stop and create my own instead</a></p>
+  {% endif %}
   <p class="muted">
-    {% if is_committee %}{{ portal_roles.committee.name }} · {{ portal_roles.committee.acronym }} · {{ portal_roles.committee.campus }} · {{ user.email }}
+    {% if is_committee %}{{ acting_committee.name }} · {{ acting_committee.acronym }} · {{ acting_committee.campus }}{% if not on_behalf %} · {{ user.email }}{% endif %}
     {% else %}{{ user.email }} · Post request{% endif %}
   </p>
+
+  {% if committees %}
+    <form method="get" class="filters">
+      <span class="muted">POC/Admin: enter a request for a club that hasn't</span>
+      <select class="input filter__sel" name="for" aria-label="Club to create the request for">
+        <option value="">— my own request —</option>
+        {% for c in committees %}<option value="{{ c.pk }}"{% if on_behalf and on_behalf.pk == c.pk %} selected{% endif %}>{{ c.name }} ({{ c.acronym }})</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn--sm">Go</button>
+    </form>
+  {% endif %}
 
   <form method="post" class="stack" novalidate>
     {% csrf_token %}
@@ -133,6 +148,21 @@
   </form>
 </section>
 
+{% if submitted %}
+<dialog id="submitted-dialog" class="modal" open aria-labelledby="submitted-title">
+  <form method="dialog" class="stack">
+    <h2 class="h2" id="submitted-title">Request submitted</h2>
+    <p>
+      <strong>{{ submitted.ref|default:"Your request" }}</strong> was submitted{% if submitted.for %} for {{ submitted.for }}{% endif %}.
+      {% if submitted.pending %}It's now with the POC for approval.
+      {% elif submitted.for %}It has been accepted and the club has been emailed.
+      {% else %}It has been accepted and the team has been assigned.{% endif %}
+    </p>
+    <div class="row"><button type="submit" class="btn btn--primary" value="ok">OK</button></div>
+  </form>
+</dialog>
+{% endif %}
+
 <script>
   // Single-day / multi-day toggle, and the "+" button that adds another sub-event row.
   (function () {
@@ -148,6 +178,12 @@
       r.addEventListener("change", sync);
     });
     sync();
+
+    // The confirmation pop-up: the <dialog> is in the page already open (so it still
+    // shows without JavaScript, and its OK button closes it); here it is promoted to
+    // a proper modal over a dimmed page.
+    var done = document.getElementById("submitted-dialog");
+    if (done && done.showModal) { done.close(); done.showModal(); }
 
     var add = document.getElementById("add-sub");
     var rows = document.getElementById("sub-rows");

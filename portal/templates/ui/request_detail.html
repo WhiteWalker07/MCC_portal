@@ -77,6 +77,9 @@
     <div><dt>Platforms</dt><dd>{{ request_obj.platforms|join:", "|default:"—" }}</dd></div>
     <div><dt>Content links</dt><dd>{{ request_obj.content_links|urlize|default:"—" }}</dd></div>
     <div><dt>Requester</dt><dd>{{ request_obj.requester|default:"—" }}</dd></div>
+    {% if request_obj.created_on_behalf_by %}
+      <div><dt>Entered by</dt><dd>{{ request_obj.created_on_behalf_by }} <span class="muted">(on the club's behalf)</span></dd></div>
+    {% endif %}
     <div><dt>Notes</dt><dd>{{ request_obj.notes|default:"—" }}</dd></div>
     <div><dt>Created</dt><dd>{{ request_obj.created_at|date:"d M Y, H:i" }}</dd></div>
   </dl>

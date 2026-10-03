@@ -195,7 +195,15 @@ def _roster_email(request_obj, roster: list[dict]) -> str:
         + (f" · {entry['phone']}" if entry.get("phone") else "")
         for entry in roster
     ]
+    # A club that didn't raise the request itself should know why it exists.
+    entered_for_you = (
+        "The Media Committee entered this request on your behalf, so you don't need to submit it "
+        "again. It is already accepted.\n\n"
+        if request_obj.created_on_behalf_by
+        else ""
+    )
     return (
         f"Your request {request_obj.ref_code} ({request_obj.event_name}) has been accepted.\n\n"
+        f"{entered_for_you}"
         f"Assigned team:\n" + ("\n".join(lines) or "  (none)") + "\n"
     )

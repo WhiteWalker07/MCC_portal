@@ -18,11 +18,21 @@ reassignment and the eligibility lists on every form all obey it identically.
 
 Strikes deliberately play no part in eligibility or ordering — they are a
 record kept by heads and the POC, not a lever on the assignment engine.
+
+**Choosing among equals.** Candidates are ranked by vertical tier, then by points
+(fewest first). If several are *still* tied after that, the pick is made at random:
+a last resort, so that a tie is never settled by who happens to come first in the
+alphabet. The lists shown to people (the manual-assign dropdowns) stay sorted by
+name, because that is only for reading; only the automatic pick is randomised
+(`pick_best`; switched by `settings.PORTAL_RANDOM_TIE_BREAK`).
 """
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
+
+from django.conf import settings as django_settings
 
 from core.constants import TASK_SUPERVISOR, Availability
 
@@ -78,10 +88,33 @@ def is_base_eligible(
 def _fairness_key(member):
     """
     Order the pool so the least-loaded person comes first: fewest points, then
-    name for a stable tie-break. This is what keeps work spread across the team
-    instead of landing on whoever matches first (docs/PRD.md §5.2).
+    name. The name only makes the *displayed* order stable; it never decides an
+    automatic pick (see `pick_best`). This is what keeps work spread across the
+    team instead of landing on whoever matches first (docs/PRD.md §5.2).
     """
     return (member.points or 0, str(member.name))
+
+
+def _choose_among_tied(tied: list):
+    """One of several equally good candidates: random, unless switched off (tests)."""
+    if len(tied) == 1 or not getattr(django_settings, "PORTAL_RANDOM_TIE_BREAK", True):
+        return tied[0]
+    return random.choice(tied)
+
+
+def pick_best(pool: list, rank=None, *, vertical: str = ""):
+    """
+    The automatic pick from `pool`, which is sorted best-first (as `eligible_members`
+    returns it). Everyone tied with the first on `rank` is equally good, and one of
+    them is chosen at random; `None` for an empty pool.
+
+    `rank` defaults to (vertical tier, points): the real criteria, without the name.
+    """
+    if not pool:
+        return None
+    rank = rank or (lambda m: (_vertical_tier(m, vertical), m.points or 0))
+    best = rank(pool[0])
+    return _choose_among_tied([m for m in pool if rank(m) == best])
 
 
 def _vertical_tier(member, vertical: str) -> int:
@@ -175,7 +208,7 @@ def choose_member(
     # doesn't end up shooting and editing the same event. If everyone eligible is
     # already on it, doubling up beats leaving the role unfilled.
     fresh = [m for m in pool if m.email not in already_assigned]
-    return Choice(member=(fresh or pool)[0], reason="")
+    return Choice(member=pick_best(fresh or pool, vertical=pipeline_task.vertical), reason="")
 
 
 def choose_supervisor(request_obj, settings, team, open_counts: dict[str, int]) -> Choice:
@@ -199,4 +232,7 @@ def choose_supervisor(request_obj, settings, team, open_counts: dict[str, int]) 
         return Choice(member=None, reason=f"no active second-year{where}")
 
     pool.sort(key=lambda m: (open_counts.get(m.email.lower(), 0), *_fairness_key(m)))
-    return Choice(member=pool[0], reason="")
+    # Fewest open supervisions, then fewest points; still tied -> at random.
+    return Choice(
+        member=pick_best(pool, lambda m: (open_counts.get(m.email.lower(), 0), m.points or 0)), reason=""
+    )

@@ -64,7 +64,11 @@ Everything above, plus:
   clashes with is flagged to the POC. A multi-day event has dates only, so
   there is no time to change.
 - Every request gets a reference code (e.g. `SAPIENT_7`) — use it when
-  following up so people don't have to search by event name.
+  following up so people don't have to search by event name. After you submit,
+  a **pop-up** shows the code (and whether it's accepted or waiting for the POC),
+  and the form is cleared ready for the next one. Find the request again under
+  `My Requests`.
+- A committee's name on the form is fixed; it can't be edited.
 
 ---
 
@@ -188,6 +192,14 @@ Everything above, plus:
   second-year; the system suggests one) as you approve. Approving confirms the
   roster and sends notifications; rejecting needs a reason, which gets emailed
   to the requester.
+- **Enter a request for a club that hasn't** (`New Request`, POC and Admin
+  only): pick the club in the *"enter a request for a club that hasn't"* box and
+  press **Go**. The form then works as that club's: Coverage is offered, the
+  requester is locked to the club's name, and the request **belongs to the club**
+  (it appears under the club's `My Requests` and its ID uses the club's prefix).
+  It is **accepted straight away**: no approval step, even for a short-notice
+  event or a Post. The club gets the usual accepted email, which says it was
+  entered on its behalf. The request page shows who entered it.
 - **Out-of-work requests** (also on `Approvals`, and open to Admin): you're
   emailed when a member asks. Each shows their dates, reason and **open tasks**;
   **Approve** or **Decline** with an optional note (the member is emailed).
@@ -246,10 +258,26 @@ Everything above, plus:
 
 Everything above, plus:
 
-- **Point scheme** (`Portal Admin` → Setup → Point scheme) — the only role that can
+- **Point scheme** (`Portal Admin` → Setup → Point scheme) — laid out in three
+  groups (base points, early bonus, late penalty) with a line of help under every
+  value and a table of **what the saved values pay**, so you can see the effect
+  of a change at once. Values that would contradict each other (a bonus window
+  longer than the late line, percentages over 100, a zero-hour step) are refused
+  with the reason, and the activity log records exactly what changed. It is the only role that can
   change the point values themselves (base points per task type, the
   timing bonus/penalty curve). Changing this affects all
   *future* completions; it doesn't retroactively re-score past work.
+- **How automatic assignment chooses**: it picks someone whose **primary
+  vertical** matches, then **secondary**, then anyone with the skill, preferring
+  whoever has the **fewest points**. If several people are *still* exactly tied,
+  one is chosen **at random** (not alphabetically), so work doesn't keep landing on
+  whoever's name comes first. The lists you pick from by hand stay in name order.
+- **Start completely afresh** (new term): a one-off command run by whoever has
+  lab-PC access, `manage.py reset_event_data` (see
+  [`HANDOVER.md`](../HANDOVER.md)). It deletes **all requests with their tasks and
+  sub-events**, restarts every committee's request IDs at 1, and zeroes **points and
+  strikes**. It previews first, takes a backup, and needs `RESET` typed to confirm.
+  The roster, committees, settings, meetings and activity log are kept.
 - **Reset everyone's points to zero** — a full-team reset (e.g. start of a
   new term). This does **not** touch strikes, availability history, or task
   records — it only zeroes the points counter. There is no UI button for

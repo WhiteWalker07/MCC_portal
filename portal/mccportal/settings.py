@@ -16,8 +16,15 @@ file next to manage.py (see `.env.example`). Nothing secret is committed.
 from pathlib import Path
 import os
 import secrets
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# When automatic assignment finds several equally good candidates (same vertical
+# tier and the same points), it picks one AT RANDOM, as a last resort, rather than
+# the first alphabetically. The test suite turns this off so its assertions don't
+# depend on chance; the tests of the random behaviour switch it back on.
+PORTAL_RANDOM_TIE_BREAK = "test" not in sys.argv
 
 # Holds the SQLite database, the log, the generated secret key and the backups.
 # Gitignored, so it won't exist on a fresh clone — create it before anything

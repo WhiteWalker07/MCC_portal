@@ -22,7 +22,9 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import F, Q
 from django.forms import inlineformset_factory
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -30,6 +32,7 @@ from django.views.decorators.http import require_POST
 from core.config import get_points_scheme
 from core.constants import (
     CAMPUSES,
+    COORDINATOR_GRACE_HOURS,
     DERIVED_EDITOR,
     EDIT_CUTOFF_HOURS,
     SUBEVENT_CUTOFF_HOURS,
@@ -64,13 +67,13 @@ from core.roles import (
     can_strike,
     subevent_is_open,
 )
-from engine.assign import choose_supervisor, eligible_members
+from engine.assign import choose_supervisor, eligible_members, pick_best
 from engine.assignment import override_proposed_assignee, perform_swap, validate_member
 from engine.confirm import confirm_request
 from engine.event_changes import apply_event_time_change, notify_subevent_change
 from engine.leave import open_leave_for, open_tasks_by_email, switch_availability
 from engine.pipeline import compute_deadline, refresh_coordinator_deadline
-from engine.points import base_points_for
+from engine.points import base_points_for, scheme_examples
 from engine.workflow import (
     complete_task,
     open_supervision_counts,
@@ -170,7 +173,23 @@ def profile(request):
 @login_required
 def request_new(request):
     roles = request.roles
-    is_committee = roles.committee is not None
+
+    # The POC/Admin can enter a request *for* a club that hasn't (`?for=<committee id>`).
+    # It then belongs to that club — its login is the contact, so it appears under the
+    # club's My Requests and its ID uses the club's acronym — and the form behaves as
+    # that club's: Coverage is offered and the requester is locked to the club's name.
+    # Enforced here, not just hidden in the page.
+    on_behalf = None
+    for_id = request.GET.get("for", "")
+    if for_id:
+        if not roles.is_staff_side:
+            raise PermissionDenied("Only the POC or an Admin can create a request for a club.")
+        if not for_id.isdigit():
+            raise Http404("No such committee.")
+        on_behalf = get_object_or_404(Committee, pk=int(for_id))
+    acting_committee = on_behalf or roles.committee
+    is_committee = acting_committee is not None
+    committee_name = acting_committee.name if is_committee else ""
     available_roles = list(
         TaskType.objects.filter(requestable=True).values_list("task", flat=True)
     )
@@ -186,7 +205,7 @@ def request_new(request):
             is_committee=is_committee,
             available_roles=available_roles,
             available_platforms=available_platforms,
-            committee_name=roles.committee.name if is_committee else "",
+            committee_name=committee_name,
         )
         form_ok = form.is_valid()
         # Only a multi-day Coverage event has a schedule of sub-events when it is
@@ -208,7 +227,8 @@ def request_new(request):
             new_request = form.save(commit=False)
             # Content fields only — everything engine-owned is set here, never
             # taken from the form.
-            new_request.contact_email = roles.email
+            new_request.contact_email = on_behalf.email if on_behalf else roles.email
+            new_request.created_on_behalf_by = roles.email if on_behalf else ""
             new_request.status = RequestStatus.NEW
             new_request.is_multiday = multiday
             new_request.created_at = timezone.now()
@@ -222,16 +242,26 @@ def request_new(request):
                 subevents.instance = new_request
                 subevents.save()
 
-            process_new_request(new_request)
-            messages.success(request, f"Request {new_request.ref_code or ''} submitted.")
-            return redirect("request-detail", pk=new_request.pk)
+            # A request entered for a club by the POC/Admin is accepted straight
+            # away: they are the approver, and the club is emailed as usual.
+            process_new_request(new_request, skip_approval=on_behalf is not None)
+            new_request.refresh_from_db()
+
+            # Post/Redirect/Get: back to a blank form (a refresh can't resubmit),
+            # with the confirmation pop-up carried across in the session.
+            request.session["request_submitted"] = {
+                "ref": new_request.ref_code or "",
+                "pending": new_request.status == RequestStatus.PENDING,
+                "for": on_behalf.name if on_behalf else "",
+            }
+            return redirect(reverse("request-new") + (f"?for={on_behalf.pk}" if on_behalf else ""))
     else:
-        initial = {"requester": roles.committee.name if is_committee else (request.user.get_full_name() or roles.email)}
+        initial = {"requester": committee_name if is_committee else (request.user.get_full_name() or roles.email)}
         form = RequestForm(
             is_committee=is_committee,
             available_roles=available_roles,
             available_platforms=available_platforms,
-            committee_name=roles.committee.name if is_committee else "",
+            committee_name=committee_name,
             initial=initial,
         )
         subevents = SubEventFormSet(prefix="sub", instance=Request())
@@ -239,7 +269,17 @@ def request_new(request):
     return render(
         request,
         "ui/request_new.html",
-        {"form": form, "is_committee": is_committee, "subevents": subevents},
+        {
+            "form": form,
+            "is_committee": is_committee,
+            "acting_committee": acting_committee,
+            "on_behalf": on_behalf,
+            # Staff can pick a club to enter a request for.
+            "committees": Committee.objects.order_by("name") if roles.is_staff_side else [],
+            "subevents": subevents,
+            # Shown once, on the blank form that follows a successful submit.
+            "submitted": request.session.pop("request_submitted", None) if request.method == "GET" else None,
+        },
     )
 
 
@@ -884,7 +924,7 @@ def assignment_reassign(request, pk):
                 else "No eligible member.",
             )
             return redirect("assignment-detail", pk=request_obj.pk)
-        member = skill_matched[0]
+        member = pick_best(skill_matched, vertical=task.vertical)
 
     perform_swap(task, member, request_obj)
     messages.success(request, f"{task.task} reassigned to {member.name}.")
@@ -934,7 +974,7 @@ def assignment_add(request, request_pk):
 
     member = _resolve_member(
         form, eligible, task_type.required_skill, task_type.at_event, request_obj, settings,
-        task_name=task_type.task,
+        task_name=task_type.task, vertical=task_type.vertical,
     )
     if member is None:
         messages.error(
@@ -1042,15 +1082,18 @@ def assignment_add(request, request_pk):
     return redirect("assignment-detail", pk=request_obj.pk)
 
 
-def _resolve_member(form, eligible, required_skill, at_event, request_obj, settings, *, task_name=""):
-    """Validate a manual pick against the real rules, or take the top of `eligible`."""
+def _resolve_member(form, eligible, required_skill, at_event, request_obj, settings, *, task_name="", vertical=""):
+    """
+    Validate a manual pick against the real rules, or auto-pick from `eligible`: the
+    best on vertical and points, and among those still tied, one at random.
+    """
     if form.mode == ReassignForm.MODE_MANUAL:
         validation = validate_member(
             form.cleaned_data["member_email"], required_skill, at_event, request_obj, settings,
             task_name=task_name,
         )
         return validation.member if validation.ok else None
-    return eligible[0] if eligible else None
+    return pick_best(eligible, vertical=vertical)
 
 
 @login_required
@@ -1218,7 +1261,13 @@ def portal_admin(request):
         tab = ADMIN_TABS[0][0]
     request.session["admin_tab"] = tab
 
-    context = {"tab": tab, "tabs": ADMIN_TABS, "is_admin": request.roles.is_admin, "verticals": VERTICALS}
+    context = {
+        "tab": tab,
+        "tabs": ADMIN_TABS,
+        "is_admin": request.roles.is_admin,
+        "verticals": VERTICALS,
+        "coordinator_grace_hours": COORDINATOR_GRACE_HOURS,
+    }
 
     if tab == "team":
         everyone = list(TeamMember.objects.all())
@@ -1251,12 +1300,14 @@ def portal_admin(request):
         context.update({"committees": Committee.objects.all(), "committee_form": CommitteeForm()})
     else:  # setup: vertical heads, CSV import, point scheme
         members = list(TeamMember.objects.all())
+        scheme = PointsScheme.load()
         context.update(
             {
                 "members": members,
                 "heads": {m.domain_head_of: m for m in members if m.domain_head_of},
                 "team_import_form": TeamImportForm(),
-                "point_form": PointSchemeForm(instance=PointsScheme.load()) if request.roles.is_admin else None,
+                "point_form": PointSchemeForm(instance=scheme) if request.roles.is_admin else None,
+                "examples": scheme_examples(scheme) if request.roles.is_admin else None,
             }
         )
     return render(request, "ui/admin.html", context)
@@ -1542,13 +1593,29 @@ def point_scheme(request):
         raise PermissionDenied("Only admins can change the point scheme.")
 
     scheme = PointsScheme.load()
+    before = {f.name: getattr(scheme, f.name) for f in PointsScheme._meta.fields if f.name != "id"}
     form = PointSchemeForm(request.POST, instance=scheme)
     if form.is_valid():
         form.save()
         from core.activity import log_activity
 
-        log_activity("points-scheme", actor=request.roles.email, detail="Point scheme updated")
-        messages.success(request, "Point scheme saved.")
+        # Say what changed, so the audit log answers "who changed the points, and to what".
+        changed = [
+            f"{form.fields[name].label or name}: {before[name]} -> {getattr(scheme, name)}"
+            for name in before
+            if before[name] != getattr(scheme, name)
+        ]
+        log_activity(
+            "points-scheme",
+            actor=request.roles.email,
+            detail="Point scheme updated: " + ("; ".join(changed) if changed else "no change"),
+        )
+        messages.success(request, "Point scheme saved." if changed else "No changes to save.")
     else:
-        messages.error(request, "Check the point-scheme values — they must all be zero or higher.")
+        # Name the actual problem(s) instead of a generic "check the values".
+        problems = [
+            f"{form.fields[name].label if name in form.fields else 'Scheme'}: {errors[0]}"
+            for name, errors in form.errors.items()
+        ]
+        messages.error(request, "Point scheme not saved. " + " ".join(problems[:3]))
     return redirect("portal-admin")
