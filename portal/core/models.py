@@ -405,6 +405,11 @@ class Request(models.Model):
 
     requester = models.CharField(max_length=200, blank=True, help_text="Person raising it, free text.")
     contact_email = models.EmailField(db_index=True, help_text="The signed-in account that submitted it.")
+    created_on_behalf_by = models.EmailField(
+        blank=True,
+        help_text="Set when the POC/Admin entered this request for a club that hadn't (then "
+        "`contact_email` is the club's login). Blank for a request the club raised itself.",
+    )
     campus = models.CharField(max_length=50, blank=True)
 
     roles_needed = models.JSONField(default=list, blank=True)

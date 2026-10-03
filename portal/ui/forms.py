@@ -672,16 +672,76 @@ class MemberVerticalsForm(forms.Form):
 
 
 class PointSchemeForm(forms.ModelForm):
-    """Admin-only editor for every constant in the scoring scheme."""
+    """
+    Admin-only editor for the scoring scheme (engine/points.py is what applies it).
+
+    Labels and help text live here, not on the model, so they can be reworded
+    without a migration. The checks stop values that would make the scheme
+    contradict itself: a bonus window longer than the point where lateness starts,
+    percentages over 100, or a zero-hour penalty step.
+    """
+
+    MAX_POINTS = 1000
 
     class Meta:
         model = PointsScheme
         exclude: list[str] = []
+        labels = {
+            "coordinator_points": "Event Coordinator",
+            "domain_task_points": "Every other task",
+            "vetter_points": "Vetter (old requests only)",
+            "early_window_hours": "Bonus window (hours)",
+            "early_bonus_pct": "Early bonus (%)",
+            "late_threshold_hours": "Late after (hours)",
+            "late_penalty_pct": "First penalty (%)",
+            "subsequent_delay_hours": "Then every (hours)",
+            "subsequent_penalty_pct": "Extra penalty each time (%)",
+        }
+        help_texts = {
+            "coordinator_points": "Flat, if finished by the coordinator's own deadline. After it, the late penalty below applies.",
+            "domain_task_points": "Photographer, Videographer, the editors, Content Writer and Graphic Designer.",
+            "vetter_points": "Only requests accepted before the Vetter was retired still have one.",
+            "early_window_hours": "Finish within this long of the event ending (a Post: of being requested) to earn the bonus.",
+            "early_bonus_pct": "Added on top of the base points. 30 means 10 points becomes 13.",
+            "late_threshold_hours": "Past this long, the penalty starts. Must not be shorter than the bonus window.",
+            "late_penalty_pct": "Taken off as soon as it is past that line (for the coordinator: past its deadline).",
+            "subsequent_delay_hours": "Every further full block of this many hours adds another penalty step. At least 1.",
+            "subsequent_penalty_pct": "Added to the penalty at each step. Points never go below zero.",
+        }
         widgets = {
             field.name: forms.NumberInput(attrs={"class": "input", "min": "0"})
             for field in PointsScheme._meta.fields
             if field.name != "id"
         }
+
+    #: Fields that are a percentage and so can't exceed 100.
+    PERCENT_FIELDS = ("early_bonus_pct", "late_penalty_pct", "subsequent_penalty_pct")
+    POINT_FIELDS = ("coordinator_points", "domain_task_points", "vetter_points")
+
+    def clean(self):
+        cleaned = super().clean()
+        for name in self.POINT_FIELDS:
+            value = cleaned.get(name)
+            if value is not None and not 0 <= value <= self.MAX_POINTS:
+                self.add_error(name, f"Use a value from 0 to {self.MAX_POINTS}.")
+        for name in self.PERCENT_FIELDS:
+            value = cleaned.get(name)
+            if value is not None and not 0 <= value <= 100:
+                self.add_error(name, "Use a percentage from 0 to 100.")
+        for name in ("early_window_hours", "late_threshold_hours"):
+            value = cleaned.get(name)
+            if value is not None and value < 0:
+                self.add_error(name, "Hours can't be negative.")
+        block = cleaned.get("subsequent_delay_hours")
+        if block is not None and block < 1:
+            self.add_error("subsequent_delay_hours", "Must be at least 1 hour.")
+        early, late = cleaned.get("early_window_hours"), cleaned.get("late_threshold_hours")
+        if early is not None and late is not None and early > late:
+            self.add_error(
+                "late_threshold_hours",
+                "Lateness can't start before the bonus window ends: make this at least as long as the bonus window.",
+            )
+        return cleaned
 
 
 class TeamImportForm(forms.Form):

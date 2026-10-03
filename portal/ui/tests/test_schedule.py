@@ -97,7 +97,8 @@ class SubEventAtCreationTests(ScheduleBase):
             )
         )
         request_obj = Request.objects.get(event_name="Annual Fest")
-        self.assertRedirects(response, reverse("request-detail", args=[request_obj.pk]))
+        # Back to a blank form, with the confirmation pop-up.
+        self.assertRedirects(response, reverse("request-new"))
         self.assertTrue(request_obj.is_multiday)
         self.assertEqual(
             list(request_obj.sub_events.values_list("name", flat=True)), ["Inauguration", "Panel"]

@@ -268,7 +268,7 @@ class PortalViewTests(TestCase):
             },
         )
         request_obj = Request.objects.get(event_name="Launch")
-        self.assertRedirects(response, reverse("request-detail", args=[request_obj.pk]))
+        self.assertRedirects(response, reverse("request-new"))  # blank form + pop-up
         # Post requests always go through a POC/Secretary check now, so the
         # Graphic Designer can be confirmed or overridden at approval time.
         self.assertEqual(request_obj.status, RequestStatus.PENDING)
@@ -291,7 +291,7 @@ class PortalViewTests(TestCase):
             },
         )
         request_obj = Request.objects.get(event_name="Fest")
-        self.assertRedirects(response, reverse("request-detail", args=[request_obj.pk]))
+        self.assertRedirects(response, reverse("request-new"))  # blank form + pop-up
         self.assertTrue(request_obj.ref_code.startswith("SPT_"))
 
     def test_committee_can_edit_the_venue(self):

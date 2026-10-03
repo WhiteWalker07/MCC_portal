@@ -41,7 +41,7 @@ from core.models import LeaveRequest, Meeting, MeetingInvite, TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
 
-from .assign import _fairness_key
+from .assign import _fairness_key, pick_best
 
 INVITE_ALL = "all"
 INVITE_MBA_YEAR1 = "mba_year1"
@@ -103,11 +103,14 @@ def can_take_mom(member) -> bool:
 
 def choose_mom(invitees, *, exclude_email: str = "") -> TeamMember | None:
     """
-    The suggested minutes-taker: the first-year invitee with the fewest points
-    (name breaks a tie).
+    The suggested minutes-taker: the first-year invitee with the fewest points;
+    if several are tied, one of them is picked at random (never by name).
     """
-    pool = [m for m in invitees if can_take_mom(m) and m.email != (exclude_email or "").lower()]
-    return min(pool, key=_fairness_key) if pool else None
+    pool = sorted(
+        (m for m in invitees if can_take_mom(m) and m.email != (exclude_email or "").lower()),
+        key=_fairness_key,
+    )
+    return pick_best(pool, lambda m: m.points or 0)
 
 
 def _check_mom(member, invitees) -> None:

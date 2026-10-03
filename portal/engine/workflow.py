@@ -84,13 +84,15 @@ def open_supervision_counts() -> dict[str, int]:
     return counts
 
 
-def process_new_request(request_obj) -> None:
+def process_new_request(request_obj, *, skip_approval: bool = False) -> None:
     """
     Take a freshly submitted request from 'New' to either 'Pending for POC
     approval' or 'Request Accepted'.
 
     Allocates the reference code, builds and staffs the task pipeline, then
-    applies the approval gate.
+    applies the approval gate. `skip_approval` is for a request the POC/Admin
+    entered on a club's behalf: they are the approver, so it is accepted straight
+    away (short-notice Coverage and Posts included).
     """
     allocation = allocate_ref_code(request_obj)
     if not allocation.ok:
@@ -181,8 +183,9 @@ def process_new_request(request_obj) -> None:
         "created",
         request_obj=request_obj,
         ref_code=allocation.ref_code,
-        actor=request_obj.contact_email,
-        detail=f"{request_obj.type} request created",
+        actor=request_obj.created_on_behalf_by or request_obj.contact_email,
+        detail=f"{request_obj.type} request created"
+        + (f" on behalf of {request_obj.contact_email}" if request_obj.created_on_behalf_by else ""),
     )
     for task_name, member, reason in outcomes:
         log_activity(
@@ -195,7 +198,7 @@ def process_new_request(request_obj) -> None:
             ),
         )
 
-    if _requires_approval(request_obj, settings):
+    if not skip_approval and _requires_approval(request_obj, settings):
         request_obj.status = RequestStatus.PENDING
         request_obj.save(update_fields=["status"])
         email_service.send(

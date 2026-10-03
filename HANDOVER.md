@@ -92,6 +92,12 @@ python -m venv .venv
 
 # Useful management commands
 .venv\Scripts\python manage.py reset_points     # zero everyone's points, confirmation-prompted (--yes to skip)
+# Fresh start: delete ALL requests/tasks/sub-events, restart every committee's ID counter
+# (SPT_1 ...), zero points AND strikes. Previews by default; --apply backs up first (file
+# mcc-pre-reset-<time>.sqlite3, never pruned) and asks you to type RESET. Keeps roster,
+# committees, settings, point scheme, meetings, leave requests and the activity log.
+.venv\Scripts\python manage.py reset_event_data            # preview only
+.venv\Scripts\python manage.py reset_event_data --apply    # do it
 .venv\Scripts\python manage.py backup_db        # sqlite3 hot backup, WAL-safe
 .venv\Scripts\python manage.py deadline_check   # the hourly sweep, runnable manually
 ```
@@ -289,6 +295,37 @@ adds the Task Supervisor task type, stops Vetters being added by hand). In order
 This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
+
+### Sixth batch (random last-resort tie-break, reset_event_data)
+No migration. **Auto-assignment ties are broken at random**, never alphabetically:
+rank = (vertical tier, then fewest points); everyone still tied for first is equally
+good and `engine.assign.pick_best` chooses one at random. Used by `choose_member`,
+`choose_supervisor`, the hand-assign screens' "auto-pick" and the meeting
+minutes-taker. Dropdown lists stay name-sorted (reading order only). It is switched
+by `settings.PORTAL_RANDOM_TIE_BREAK` (on, except under `manage.py test`, so the
+suite stays deterministic; `test_random_tiebreak.py` turns it on to test it). A new
+test that needs a particular pick should set up distinct points/verticals rather
+than rely on name order — and one that wants the random path must override the setting.
+`reset_event_data` is documented under the commands list above.
+
+### Fifth batch (request entered for a club, submit pop-up, points card)
+Migration `0008` is schema-only (`Request.created_on_behalf_by`). Same deploy order; no seed step.
+- **Manual creation**: `request_new` takes `?for=<committee id>` (POC/Admin only, 403
+  otherwise; the id is read from the query string, never the POST body). The form
+  then behaves as that committee's (`committee_name` locks the requester),
+  `contact_email` is the club's login, `created_on_behalf_by` is the staff member,
+  and `process_new_request(..., skip_approval=True)` accepts it at once, so the
+  club gets the usual `[Accepted]` mail (with an "entered on your behalf" line).
+- **Submit pop-up**: a successful submit is Post/Redirect/Get back to a blank
+  `/requests/new/` (keeping `?for=`); the result rides in the session
+  (`request_submitted`) and renders a native `<dialog>` once. Any existing test that
+  expected a redirect to the request page now expects `request-new`.
+- **Point scheme card**: labels/help/validation live in `PointSchemeForm` (not on the
+  model, so no migration); the "what it pays" tables come from
+  `engine.points.scheme_examples`, which calls the same functions that award points.
+  The save logs a diff (`Early bonus (%): 30 -> 40`). The per-task `TaskType.points`
+  number is **not used by the engine any more** (everything comes from the scheme);
+  it is still shown in Django admin and editing it does nothing.
 
 ### Fourth batch (single-day / multi-day events)
 Migration `0007` is schema-only (`Request.is_multiday`, default False, so every
