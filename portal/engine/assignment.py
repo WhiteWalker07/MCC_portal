@@ -29,6 +29,96 @@ from .notify import award_points, notify_assignee
 from .points import base_points_for
 
 
+class RemovalError(ValueError):
+    """A removal the rules don't allow; the message is shown to the user."""
+
+
+def remove_shooter(task, actor: str) -> list[str]:
+    """
+    Take a photographer or videographer off an event, together with the editing that
+    goes with them (each shooter edits their own work, so it has nothing to attach
+    to once they are gone). Only a task that isn't done yet, on a request that isn't
+    closed. Returns the labels of what was removed.
+
+    Anyone who had been told about it (the task was confirmed) gets one email
+    listing what was taken off them; if the club had been given their contact, it is
+    told the team changed. The Event Coordinator's deadline is recalculated, since
+    one of the tasks it is measured from has gone.
+    """
+    from core.models import Task
+
+    from .pipeline import refresh_coordinator_deadline
+    from .workflow import advance_if_covered  # local: workflow imports this module's neighbours
+
+    request_obj = task.request
+    if task.task not in DERIVED_EDITOR:
+        raise RemovalError("Only a photographer or videographer can be removed.")
+    if request_obj.status in RequestStatus.TERMINAL:
+        raise RemovalError("That request is closed: its team can no longer be changed.")
+
+    with transaction.atomic():
+        locked = Task.objects.select_for_update().select_related("sub_event").get(pk=task.pk)
+        if locked.status == TaskStatus.DONE:
+            raise RemovalError("That task is already done, so it can't be removed.")
+        editors = [e for e in locked.paired_editors.select_for_update() if e.status != TaskStatus.DONE]
+        doomed = [locked, *editors]
+        snapshot = [(t.label, t.email, t.member, t.status, t.task in ROSTER_ROLES) for t in doomed]
+        for t in doomed:
+            t.delete()
+
+        accepted = request_obj.status in RequestStatus.CONFIRMED_STATES
+        if accepted and request_obj.roster:
+            roster = list(request_obj.roster)
+            for label, email, _, _, in_roster in snapshot:
+                if in_roster:
+                    entry = next((e for e in roster if e.get("role") == label and e.get("email") == email), None)
+                    if entry is not None:
+                        roster.remove(entry)
+            request_obj.roster = roster
+            request_obj.save(update_fields=["roster"])
+        refresh_coordinator_deadline(request_obj)
+
+    ref = request_obj.ref_code
+    removed_labels = [label for label, *_ in snapshot]
+
+    # One email per person who had been told, listing everything taken off them.
+    told: dict[str, list[str]] = {}
+    for label, email, _, status, _ in snapshot:
+        if email and status in (TaskStatus.CONFIRMED, TaskStatus.LATE):
+            told.setdefault(email, []).append(label)
+    for email, labels in told.items():
+        email_service.send(
+            email,
+            f"[Removed] {ref} {labels[0]} — {request_obj.event_name}",
+            f"You are no longer assigned to {request_obj.event_name} ({ref}):\n"
+            + "\n".join(f"  {label}" for label in labels)
+            + "\n\nIt was removed by the event's coordinator or the POC. If you think this is a mistake, "
+            "ask them.\n",
+        )
+
+    shooter_label, shooter_email, shooter_name, shooter_status, in_roster = snapshot[0]
+    if accepted and in_roster and shooter_email:
+        email_service.send(
+            request_obj.contact_email,
+            f"[Team update] {ref} — {request_obj.event_name}",
+            f"{shooter_name} <{shooter_email}> is no longer on the team for {request_obj.event_name} "
+            f"({ref}): the {shooter_label} role has been taken off it. If someone is added in their "
+            "place, you will be sent their details.",
+            in_reply_to=email_service.thread_id_for(ref),
+        )
+    # The task taken off may have been the last deliverable the event was waiting for.
+    advance_if_covered(request_obj)
+    log_activity(
+        "task-removed",
+        request_obj=request_obj,
+        ref_code=ref,
+        actor=actor,
+        member=shooter_email,
+        detail="Removed " + ", ".join(removed_labels),
+    )
+    return removed_labels
+
+
 def override_proposed_assignee(task, member) -> None:
     """
     Swap a not-yet-confirmed task's assignee, no bookkeeping beyond the
@@ -91,6 +181,7 @@ def validate_member(
     *,
     require_skill: bool = True,
     task_name: str = "",
+    window: tuple | None = None,
 ) -> Validation:
     """
     Check one hand-picked member against the same rules auto-assignment uses.
@@ -121,8 +212,12 @@ def validate_member(
             ),
         )
 
-    if at_event and request_obj.event_start and request_obj.event_end and not request_obj.is_multiday:
-        free = calendar_service().is_free(address, request_obj.event_start, request_obj.event_end)
+    # `window` is a sub-event's own time; absent, the whole event's (a multi-day
+    # event has no single window, so its whole-event tasks aren't checked).
+    if window is None and request_obj.event_start and request_obj.event_end and not request_obj.is_multiday:
+        window = (request_obj.event_start, request_obj.event_end)
+    if at_event and window and window[0] and window[1]:
+        free = calendar_service().is_free(address, window[0], window[1])
         if not free:
             return Validation(ok=False, reason=f"{member.name} is busy during the event window")
 
@@ -146,8 +241,8 @@ def perform_swap(task, new_member, request_obj) -> None:
     if old_email and old_email != new_member.email.lower():
         email_service.send(
             old_email,
-            f"[Reassigned] {task.ref_code} {task.task}",
-            f"Your {task.task} task on {task.ref_code} ({task.event_name}) "
+            f"[Reassigned] {task.ref_code} {task.label}",
+            f"Your {task.label} task on {task.ref_code} ({task.event_name}) "
             f"has been reassigned to {new_member.name}.",
         )
 
@@ -160,7 +255,7 @@ def perform_swap(task, new_member, request_obj) -> None:
         email_service.send(
             request_obj.contact_email,
             f"[Team update] {task.ref_code} — {request_obj.event_name}",
-            f"{task.task} for {request_obj.event_name} ({task.ref_code}) is now "
+            f"{task.label} for {request_obj.event_name} ({task.ref_code}) is now "
             f"{new_member.name} <{new_member.email}>"
             + (f" · {new_member.phone}" if new_member.phone else "")
             + ".",
@@ -172,7 +267,7 @@ def perform_swap(task, new_member, request_obj) -> None:
         request_obj=request_obj,
         ref_code=task.ref_code,
         member=new_member.email,
-        detail=f"{task.task}: {old_email or 'unfilled'} -> {new_member.email}",
+        detail=f"{task.label}: {old_email or 'unfilled'} -> {new_member.email}",
     )
 
     # Each shooter edits their own work, so the editing task goes with them.

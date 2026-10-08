@@ -68,20 +68,34 @@ from core.roles import (
     subevent_is_open,
 )
 from engine.assign import choose_supervisor, eligible_members, pick_best
-from engine.assignment import override_proposed_assignee, perform_swap, validate_member
+from engine.assignment import (
+    RemovalError,
+    override_proposed_assignee,
+    perform_swap,
+    remove_shooter,
+    validate_member,
+)
 from engine.confirm import confirm_request
-from engine.event_changes import apply_event_time_change, notify_subevent_change
+from engine.event_changes import (
+    apply_event_time_change,
+    notify_subevent_change,
+    release_sub_event,
+    retime_sub_event,
+    staff_new_sub_event,
+    team_note_for,
+)
 from engine.leave import open_leave_for, open_tasks_by_email, switch_availability
 from engine.pipeline import compute_deadline, refresh_coordinator_deadline
 from engine.points import base_points_for, scheme_examples
 from engine.workflow import (
+    add_task_from_type,
     complete_task,
     open_supervision_counts,
     process_new_request,
     reject_request,
     schedule_posts,
 )
-from services.calendar import calendar_service
+from services.calendar import RememberingCalendar, calendar_service
 
 from . import allocation
 from . import dashboard as dashboard_data
@@ -121,12 +135,6 @@ SubEventFormSet = inlineformset_factory(
 
 
 # ── Home / sign-in ───────────────────────────────────────────────────────────
-
-
-def home(request):
-    if request.user.is_authenticated:
-        return redirect("request-list")
-    return render(request, "ui/signin.html")
 
 
 def signed_out(request):
@@ -241,18 +249,20 @@ def request_new(request):
             new_request.roles_needed = form.cleaned_data.get("roles_needed") or []
             new_request.platforms = form.cleaned_data.get("platforms") or []
 
-            preferred = None
+            preferred, extra_pairs = None, None
             if on_behalf:
                 # Only the club's campus is needed to pick a team; the rest happens
                 # when the request is really saved.
                 new_request.campus = on_behalf.campus or ""
-                pipeline = allocation.pipeline_for(new_request)
-                posted = allocation.picks_from_post(request.POST, [p.task for p in pipeline])
+                draft_subs = allocation.draft_sub_events(subevents) if wants_subevents else []
+                extra_rows, extra_errors = allocation.extras_from_post(request.POST, len(draft_subs))
+                pipeline = allocation.pipeline_for(new_request, draft_subs, extra_rows)
+                posted = allocation.picks_from_post(request.POST, pipeline, extra_rows)
                 preferred, errors = allocation.validate_picks(new_request, posted, pipeline)
-                if step != "confirm" or errors:
-                    if errors:
+                if step != "confirm" or errors or extra_errors:
+                    if errors or extra_errors:
                         messages.error(
-                            request, "Some of the people you chose can't be assigned. See the notes below."
+                            request, "Some of the people or tasks you chose can't be used. See the notes below."
                         )
                     return render(
                         request,
@@ -260,11 +270,14 @@ def request_new(request):
                         {
                             "draft": new_request,
                             "on_behalf": on_behalf,
-                            "rows": allocation.build_rows(new_request, posted, errors),
                             "carried": allocation.carried_fields(request.POST),
                             "is_multiday": multiday,
+                            **allocation.build_page(
+                                new_request, draft_subs, extra_rows, posted, errors, extra_errors
+                            ),
                         },
                     )
+                extra_pairs = [(r.task, int(r.sub) if r.sub != "" else None) for r in extra_rows]
 
             new_request.save()
 
@@ -278,7 +291,9 @@ def request_new(request):
             # away: they are the approver, and the club is emailed as usual. The
             # team they chose (anything not chosen is picked by the engine) is
             # applied as the request is staffed.
-            process_new_request(new_request, skip_approval=on_behalf is not None, preferred=preferred)
+            process_new_request(
+                new_request, skip_approval=on_behalf is not None, preferred=preferred, extras=extra_pairs
+            )
             new_request.refresh_from_db()
 
             # Post/Redirect/Get: back to a blank form (a refresh can't resubmit),
@@ -586,8 +601,15 @@ def request_subevent_add(request, pk):
     sub = form.save(commit=False)
     sub.request = request_obj
     sub.save()
-    notify_subevent_change(request_obj, "added", sub, request.roles.email)
-    messages.success(request, f"Sub-event “{sub.name}” added.")
+    # A multi-day event's new sub-event gets its own photographer/videographer
+    # straight away (accepted requests: confirmed and emailed; otherwise proposed).
+    team = staff_new_sub_event(request_obj, sub, request.roles.email)
+    notify_subevent_change(request_obj, "added", sub, request.roles.email, team_note_for(team))
+    messages.success(
+        request,
+        f"Sub-event “{sub.name}” added."
+        + (f" Its team: {', '.join(t.member or 'UNFILLED' for t in team)}." if team else ""),
+    )
     return redirect("request-detail", pk=request_obj.pk)
 
 
@@ -601,6 +623,7 @@ def request_subevent_edit(request, pk, sub_pk):
     # last 48 hours to dodge the cutoff.
     if not subevent_is_open(sub.start):
         return _too_late_for_subevent(request, request_obj)
+    old = (sub.name, sub.start, sub.end, sub.venue)  # before the form overwrites them
     form = SubEventForm(
         request.POST, instance=sub, prefix=f"se{sub.pk}", bounds=_multiday_bounds(request_obj), enforce_lead=True
     )
@@ -609,8 +632,17 @@ def request_subevent_edit(request, pk, sub_pk):
         return redirect("request-detail", pk=request_obj.pk)
     if form.has_changed():
         sub = form.save()
+        # Its own team's times and deadlines move with it, and they are told.
+        clashes = retime_sub_event(sub, old, request.roles.email)
         notify_subevent_change(request_obj, "edited", sub, request.roles.email)
         messages.success(request, f"Sub-event “{sub.name}” updated.")
+        if clashes:
+            messages.warning(
+                request,
+                "The new time clashes with the calendar of "
+                + ", ".join(name for name, _ in clashes)
+                + ". The Task Supervisor and the POC have been told.",
+            )
     return redirect("request-detail", pk=request_obj.pk)
 
 
@@ -623,8 +655,9 @@ def request_subevent_delete(request, pk, sub_pk):
         return _too_late_for_subevent(request, request_obj)
     # Keep a copy for the notification: once deleted, the row's details are gone.
     snapshot = SubEvent(name=sub.name, start=sub.start, end=sub.end, venue=sub.venue, notes=sub.notes)
+    released = release_sub_event(sub, request.roles.email)  # its own team comes off first
     sub.delete()
-    notify_subevent_change(request_obj, "deleted", snapshot, request.roles.email)
+    notify_subevent_change(request_obj, "deleted", snapshot, request.roles.email, released)
     messages.success(request, f"Sub-event “{snapshot.name}” removed.")
     return redirect("request-detail", pk=request_obj.pk)
 
@@ -641,7 +674,7 @@ def _first_error(form) -> str:
 
 @team_required
 def task_list(request):
-    tasks = Task.objects.filter(email=request.roles.email).select_related("request").order_by(
+    tasks = Task.objects.filter(email=request.roles.email).select_related("request", "sub_event").order_by(
         "deadline"
     )
     return render(request, "ui/task_list.html", {"tasks": tasks})
@@ -799,13 +832,16 @@ def assignment_detail(request, pk):
         raise PermissionDenied("You don't have an assignment role.")
 
     request_obj = get_object_or_404(Request, pk=pk)
-    tasks = list(request_obj.tasks.all())
+    tasks = list(request_obj.tasks.select_related("sub_event"))
 
     if not _in_assignment_scope(roles, request_obj, tasks):
         raise PermissionDenied("You don't have an assignment role on this request.")
 
     settings = _settings()
     team = _team()
+    # Every row's dropdown checks the same people against the same few windows (the
+    # event's, or each sub-event's): ask the calendar once per person and window.
+    calendar = RememberingCalendar(calendar_service())
 
     task_rows = []
     for task in tasks:
@@ -825,22 +861,39 @@ def assignment_detail(request, pk):
                 request_obj,
                 settings,
                 team,
-                calendar_service(),
+                calendar,
                 exclude={task.email} if task.email else set(),
                 require_skill=False,
                 task_name=task.task,
                 vertical=task.vertical,
+                window=_task_window(task),
             )
             form = ReassignForm(eligible=eligible)
-        task_rows.append({"task": task, "manageable": manageable, "form": form})
+        task_rows.append(
+            {
+                "task": task,
+                "manageable": manageable,
+                "form": form,
+                # Photographers and videographers can be taken off an event (along with
+                # the editing that goes with them) until the work is done.
+                "removable": manageable
+                and task.task in DERIVED_EDITOR
+                and task.status != TaskStatus.DONE
+                and request_obj.status not in RequestStatus.TERMINAL,
+            }
+        )
 
     # One small add-task form per internal-assignable type not already fully
     # staffed — each already scoped to that type's own candidate pool, so no
     # task-type-dependent dropdown (and no JS) is needed (ui/forms.py).
     existing_types = {t.task for t in tasks}
+    add_sub_events = list(request_obj.sub_events.all()) if request_obj.is_multiday else []
     add_forms = []
     for task_type in TaskType.objects.filter(internal_assignable=True):
-        if task_type.task != "Event Coordinator" and task_type.task in existing_types:
+        # The coordinator and supervisor are one per request (add = reassign / fill);
+        # any other task can be added again, for example a second photographer.
+        one_per_request = task_type.task in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)
+        if task_type.task != "Event Coordinator" and one_per_request and task_type.task in existing_types:
             continue  # already on this request; reassign it instead of adding again
         if task_type.task == TASK_SUPERVISOR and request_obj.type != RequestType.COVERAGE:
             continue  # only Coverage requests have a supervisor
@@ -852,12 +905,17 @@ def assignment_detail(request, pk):
             request_obj,
             settings,
             team,
-            calendar_service(),
+            calendar,
             task_name=task_type.task,
             vertical=task_type.vertical,
         )
         add_forms.append(
-            {"task_type": task_type, "form": AddTaskForm(task_type=task_type.task, eligible=eligible)}
+            {
+                "task_type": task_type,
+                "form": AddTaskForm(
+                    task_type=task_type.task, eligible=eligible, sub_events=add_sub_events
+                ),
+            }
         )
 
     return render(
@@ -871,6 +929,11 @@ def assignment_detail(request, pk):
             "can_mark_ready": can_assign(roles, "", request_obj.coordinator_email),
         },
     )
+
+
+def _task_window(task):
+    """The (start, end) a task's assignee must be free for, if it covers one sub-event."""
+    return (task.event_start, task.event_end) if task.sub_event_id else None
 
 
 def _settings():
@@ -910,7 +973,7 @@ def assignment_reassign(request, pk):
     any_vertical = eligible_members(
         task.required_skill, task.at_event, request_obj, settings, _team(),
         calendar_service(), exclude, require_skill=False,
-        task_name=task.task, vertical=task.vertical,
+        task_name=task.task, vertical=task.vertical, window=_task_window(task),
     )
     form = ReassignForm(request.POST, eligible=any_vertical)
     if not form.is_valid():
@@ -928,6 +991,7 @@ def assignment_reassign(request, pk):
             settings,
             require_skill=False,
             task_name=task.task,
+            window=_task_window(task),
         )
         if not validation.ok:
             messages.error(request, validation.reason)
@@ -949,6 +1013,7 @@ def assignment_reassign(request, pk):
         skill_matched = eligible_members(
             task.required_skill, task.at_event, request_obj, settings, _team(),
             calendar_service(), exclude, task_name=task.task, vertical=task.vertical,
+            window=_task_window(task),
         )
         if not skill_matched:
             messages.error(
@@ -962,6 +1027,30 @@ def assignment_reassign(request, pk):
 
     perform_swap(task, member, request_obj)
     messages.success(request, f"{task.task} reassigned to {member.name}.")
+    return redirect("assignment-detail", pk=request_obj.pk)
+
+
+@login_required
+@require_POST
+def assignment_remove(request, pk):
+    """
+    Take a photographer or videographer off an event (with their editing). Same
+    authority as reassigning that task: the request's Event Coordinator, the head of
+    that vertical, the POC or an Admin.
+    """
+    roles = request.roles
+    task = get_object_or_404(Task.objects.select_related("request"), pk=pk)
+    request_obj = task.request
+    if not can_assign(roles, task.vertical, request_obj.coordinator_email, task.task):
+        raise PermissionDenied("Not allowed to remove this task.")
+    if not _in_assignment_scope(roles, request_obj, list(request_obj.tasks.all())):
+        raise PermissionDenied("You don't have an assignment role on this request.")
+    try:
+        removed = remove_shooter(task, roles.email)
+    except RemovalError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Removed: " + ", ".join(removed) + ".")
     return redirect("assignment-detail", pk=request_obj.pk)
 
 
@@ -997,11 +1086,22 @@ def assignment_add(request, request_pk):
     )
     exclude = {existing_coordinator.email} if existing_coordinator and existing_coordinator.email else set()
 
+    sub_events = list(request_obj.sub_events.all()) if request_obj.is_multiday else []
+    # Which part of the event it is for (blank = the whole event). Only a sub-event
+    # of THIS request is accepted.
+    sub = None
+    sub_pk = (request.POST.get("sub_event") or "").strip()
+    if sub_pk:
+        sub = next((s for s in sub_events if str(s.pk) == sub_pk), None)
+        if sub is None:
+            messages.error(request, "That sub-event isn't part of this request.")
+            return redirect("assignment-detail", pk=request_obj.pk)
     eligible = eligible_members(
         task_type.required_skill, task_type.at_event, request_obj, settings, _team(), calendar_service(), exclude,
         task_name=task_type.task, vertical=task_type.vertical,
+        window=(sub.start, sub.end) if sub else None,
     )
-    form = AddTaskForm(request.POST, task_type=task_type.task, eligible=eligible)
+    form = AddTaskForm(request.POST, task_type=task_type.task, eligible=eligible, sub_events=sub_events)
     if not form.is_valid():
         messages.error(request, "That selection isn't valid — try again.")
         return redirect("assignment-detail", pk=request_obj.pk)
@@ -1009,6 +1109,7 @@ def assignment_add(request, request_pk):
     member = _resolve_member(
         form, eligible, task_type.required_skill, task_type.at_event, request_obj, settings,
         task_name=task_type.task, vertical=task_type.vertical,
+        window=(sub.start, sub.end) if sub else None,
     )
     if member is None:
         messages.error(
@@ -1029,27 +1130,10 @@ def assignment_add(request, request_pk):
     with transaction.atomic():
         # points_awarded stays False -- points are earned on completion (see
         # engine/workflow.py's `_award_completion_points`), not on assignment.
-        new_task = Task.objects.create(
-            request=request_obj,
-            req_type=request_obj.type,
-            ref_code=request_obj.ref_code or "",
-            task=task_type.task,
-            required_skill=task_type.required_skill,
-            at_event=task_type.at_event,
-            vertical=task_type.vertical or "",
-            member=member.name,
-            email=member.email,
-            phone=member.phone or "",
-            # The same scheme automatic assignment uses (coordinator 20, supervisor 0,
-            # everything else the domain-task base), not the per-type legacy number.
-            points=base_points_for(task_type.task, get_points_scheme()),
-            deadline=compute_deadline(task_type, request_obj, timezone.now()),
+        new_task = add_task_from_type(
+            request_obj, task_type, member, sub=sub,
             status=TaskStatus.CONFIRMED if confirmed_state else TaskStatus.PROPOSED,
-            coordinator_email=member.email if is_new_coordinator else (request_obj.coordinator_email or ""),
-            event_name=request_obj.event_name or "",
-            event_start=request_obj.event_start,
-            event_end=request_obj.event_end,
-            venue=request_obj.venue or "",
+            coordinator_email=member.email if is_new_coordinator else "",
         )
         if is_new_coordinator:
             # A request that had no coordinator (a Post) must now point at this
@@ -1069,26 +1153,8 @@ def assignment_add(request, request_pk):
         new_editor = None
         editor_type = TaskType.objects.filter(task=DERIVED_EDITOR.get(task_type.task, "")).first()
         if editor_type is not None:
-            new_editor = Task.objects.create(
-                request=request_obj,
-                req_type=request_obj.type,
-                ref_code=request_obj.ref_code or "",
-                task=editor_type.task,
-                required_skill=editor_type.required_skill,
-                at_event=editor_type.at_event,
-                vertical=editor_type.vertical or "",
-                member=member.name,
-                email=member.email,
-                phone=member.phone or "",
-                points=base_points_for(editor_type.task, get_points_scheme()),
-                deadline=compute_deadline(editor_type, request_obj, timezone.now()),
-                status=new_task.status,
-                coordinator_email=request_obj.coordinator_email or "",
-                event_name=request_obj.event_name or "",
-                event_start=request_obj.event_start,
-                event_end=request_obj.event_end,
-                venue=request_obj.venue or "",
-                paired_task=new_task,
+            new_editor = add_task_from_type(
+                request_obj, editor_type, member, sub=sub, status=new_task.status, paired=new_task
             )
 
         # The coordinator is due after the last of the others, and one just arrived.
@@ -1116,7 +1182,9 @@ def assignment_add(request, request_pk):
     return redirect("assignment-detail", pk=request_obj.pk)
 
 
-def _resolve_member(form, eligible, required_skill, at_event, request_obj, settings, *, task_name="", vertical=""):
+def _resolve_member(
+    form, eligible, required_skill, at_event, request_obj, settings, *, task_name="", vertical="", window=None
+):
     """
     Validate a manual pick against the real rules, or auto-pick from `eligible`: the
     best on vertical and points, and among those still tied, one at random.
@@ -1124,7 +1192,7 @@ def _resolve_member(form, eligible, required_skill, at_event, request_obj, setti
     if form.mode == ReassignForm.MODE_MANUAL:
         validation = validate_member(
             form.cleaned_data["member_email"], required_skill, at_event, request_obj, settings,
-            task_name=task_name,
+            task_name=task_name, window=window,
         )
         return validation.member if validation.ok else None
     return pick_best(eligible, vertical=vertical)

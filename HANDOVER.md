@@ -296,6 +296,40 @@ This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
 
+### Eighth batch (per-sub-event teams, extra tasks, remove, landing page)
+Migration `0009` is schema-only (`Task.sub_event`). Same deploy order; no seed step.
+Requests already in the database are untouched (their tasks have no sub-event).
+- **Per-sub-event teams**: for a *multi-day* Coverage request that has sub-events,
+  `pipeline.build_pipeline(..., sub_events=ordered_sub_events(...))` creates each ticked
+  shoot role once **per sub-event**, each with its own paired editor, on that
+  sub-event's own window (`PipelineTask.window`, deadline from `compute_deadline(...,
+  window_end=sub.end)`, the Task's `event_start/end/venue` are the sub-event's). One
+  Event Coordinator and Task Supervisor per request; the coordinator is due 12h after
+  the *last* of these. A multi-day event with no sub-events, and every single-day event,
+  keep one of each (sub-events there are information only, as before). `Task.sub_event`
+  and `Task.label` ("Photographer — Opening"). Calendar: a sub-event task gets a hold
+  for its window and is checked free for it; whole-event tasks of a multi-day event still
+  get neither (`notify.py`, `assign.eligible_members(window=...)`, `validate_member(window=)`).
+- **Task keys**: every pipeline task has an `ident` (`Photographer`, `Photographer@s1`
+  = second sub-event, `Photographer+1` = first extra, `Photographer+1@s1`), used for the
+  team page's `pick:<ident>` fields and `preferred`. Sub-events are numbered by
+  `ordered_sub_events` so the preview and the real save agree. Tasks are now created one by
+  one (`workflow.create_task_row`), not `bulk_create`; pairing is set at creation.
+- **Team page** (`ui/allocation.py`, `request_allocate.html`): grouped by sub-event, plus
+  "Additional tasks" (`extra-TOTAL`, `extra-<i>-task|sub|who`; any assignable type except
+  the one-per-request EC/Supervisor; `process_new_request(..., extras=[(task, sub_index)])`).
+- **After the fact** (`engine/event_changes.py`): a sub-event *added* to an accepted multi-day
+  request is staffed at once (`staff_new_sub_event`: confirmed, emailed, added to the club's
+  `roster`, club told); *edited* → its team's windows/deadlines move and they are emailed
+  (`retime_sub_event`); *deleted* → its team is released and told (`release_sub_event`).
+- **Assignments**: "Add a task" now offers repeatable types again (it used to hide a type
+  already on the request, so a second Photographer could not be added from the page) and
+  asks which sub-event; new **Remove** (`engine.assignment.remove_shooter`, view
+  `assignment_remove`) for a Photographer/Videographer that isn't done, taking their
+  paired editing with it, emailing them and the club, and recalculating the coordinator's
+  deadline. Same authority as reassigning (`can_assign`).
+- **Landing page**: `ui/home_views.py` / `home.html`, `/`, first in the menu, sections by role.
+
 ### Seventh batch (choose the team before saving a back-entered request)
 No migration. For `request_new?for=<club>` (POC/Admin back entry) the form now has a
 second step, `ui/templates/request_allocate.html`: **Next** shows the team the engine

@@ -140,6 +140,7 @@ def eligible_members(
     require_skill: bool = True,
     task_name: str = "",
     vertical: str = "",
+    window: tuple | None = None,
 ) -> list:
     """
     The full sorted pool for a role, best candidate first.
@@ -147,6 +148,10 @@ def eligible_members(
     When the task belongs to a `vertical`, members are ordered primary-vertical
     first, then secondary-vertical, then everyone else who can do it; the
     fairness order applies within each of those groups.
+
+    `window` is the (start, end) a person must be free for. It is the sub-event's
+    own time for a task that covers one sub-event; otherwise it is the whole
+    event's, except for a multi-day event, which has no single window to check.
     """
     excluded = {e.lower() for e in (exclude or set())}
     pool = [
@@ -159,14 +164,14 @@ def eligible_members(
     ]
 
     # A multi-day event is whole days with no single time window, so "is this person
-    # free for it" isn't a meaningful question: nobody's calendar is clear of
-    # everything across several days.
-    if at_event and request_obj.event_start and request_obj.event_end and not request_obj.is_multiday:
-        pool = [
-            m
-            for m in pool
-            if calendar.is_free(m.email, request_obj.event_start, request_obj.event_end)
-        ]
+    # free for it" isn't a meaningful question for its whole-event tasks: nobody's
+    # calendar is clear of everything across several days. A task that covers one
+    # sub-event does have a real window, and is checked against it.
+    if window is None and request_obj.event_start and request_obj.event_end and not request_obj.is_multiday:
+        window = (request_obj.event_start, request_obj.event_end)
+    if at_event and window and window[0] and window[1]:
+        start, end = window
+        pool = [m for m in pool if calendar.is_free(m.email, start, end)]
 
     return sorted(pool, key=lambda m: (_vertical_tier(m, vertical), *_fairness_key(m)))
 
@@ -189,6 +194,7 @@ def choose_member(
         calendar,
         task_name=pipeline_task.task,
         vertical=pipeline_task.vertical,
+        window=pipeline_task.window,
     )
 
     if not pool:

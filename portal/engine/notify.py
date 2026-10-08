@@ -8,6 +8,7 @@ and workflow.py can all reach them without importing each other.
 from __future__ import annotations
 
 from django.db.models import F
+from django.utils import timezone
 
 from core.constants import TASK_SUPERVISOR
 from core.models import TeamMember
@@ -35,12 +36,15 @@ def notify_assignee(task) -> None:
         return
 
     calendar = calendar_service()
-    # No calendar hold for a multi-day event (whole days, no single window): they
-    # get the deadline reminder instead, like any other task.
-    if task.at_event and task.event_start and task.event_end and not task.request.is_multiday:
+    label = task.label
+    # A multi-day event is whole days with no single window, so a task that covers
+    # the whole of it gets the deadline reminder instead of a hold. A task that
+    # covers one sub-event has that sub-event's real time, so it does get a hold.
+    has_window = task.event_start and task.event_end and (task.sub_event_id or not task.request.is_multiday)
+    if task.at_event and has_window:
         calendar.create_hold(
             email=task.email,
-            title=f"{task.ref_code} {task.task} — {task.event_name}",
+            title=f"{task.ref_code} {label} — {task.event_name}",
             start=task.event_start,
             end=task.event_end,
             description=task.venue or "",
@@ -48,7 +52,7 @@ def notify_assignee(task) -> None:
     elif task.deadline:
         calendar.create_reminder(
             email=task.email,
-            title=f"{task.ref_code} {task.task} due — {task.event_name}",
+            title=f"{task.ref_code} {label} due — {task.event_name}",
             due=task.deadline,
         )
 
@@ -61,10 +65,18 @@ def notify_assignee(task) -> None:
         )
     else:
         body = f"You've been assigned as {task.task} for {task.event_name} ({task.ref_code}).\n"
+        if task.sub_event_id:
+            sub = task.sub_event
+            body += (
+                f"\nYou are covering the sub-event \"{sub.name}\": "
+                f"{timezone.localtime(sub.start):%a %d %b, %H:%M}–{timezone.localtime(sub.end):%H:%M}"
+                + (f", {sub.venue}" if sub.venue else "")
+                + ".\n\n"
+            )
     if task.deadline:
         body += f"Deadline: {task.deadline:%d %b %Y, %H:%M}\n"
     email_service.send(
         task.email,
-        f"[Assigned] {task.ref_code} {task.task} — {task.event_name}",
+        f"[Assigned] {task.ref_code} {label} — {task.event_name}",
         body,
     )

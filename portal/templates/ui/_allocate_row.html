@@ -1,0 +1,13 @@
+<tr>
+  <td>{{ row.task }}{% if row.vertical %}<br><span class="muted">{{ row.vertical }}</span>{% endif %}</td>
+  <td>
+    <select class="input" name="pick:{{ row.key }}" aria-label="Who does {{ row.task }}">
+      <option value=""{% if not row.selected %} selected{% endif %}>{% if row.follows %}Same person as the {{ row.follows }}{% else %}Let the system decide{% endif %}</option>
+      {% for email, label in row.options %}<option value="{{ email }}"{% if row.selected == email %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    {% if row.note %}<p class="error">Nobody is eligible: {{ row.note }}.</p>{% endif %}
+    {% if row.error %}<p class="error">{{ row.error }}</p>{% endif %}
+    {% for warning in row.warnings %}<p class="muted">⚠ {{ warning }}</p>{% endfor %}
+  </td>
+  <td>{% if row.due %}{{ row.due|date:"d M, H:i" }}{% else %}<span class="muted">—</span>{% endif %}</td>
+</tr>

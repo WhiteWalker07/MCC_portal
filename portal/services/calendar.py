@@ -166,6 +166,28 @@ class GoogleCalendar:
             logger.error("calendar insert(%s, %r) failed: %s", email, title, exc)
 
 
+class RememberingCalendar:
+    """
+    Asks the real calendar once per person and time window, then remembers, for the
+    length of one page. Many tasks share a window, so a page that builds a candidate
+    list per task would otherwise query each person's calendar once per task.
+    Everything other than `is_free` passes straight through.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._answers: dict = {}
+
+    def is_free(self, email, start, end):
+        key = (email.lower(), start, end)
+        if key not in self._answers:
+            self._answers[key] = self._inner.is_free(email, start, end)
+        return self._answers[key]
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 _cached = None
 
 
