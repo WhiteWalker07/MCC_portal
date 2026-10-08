@@ -113,7 +113,7 @@ def number_extras(extras) -> list[tuple[str, int | None, int]]:
 
 
 def build_pipeline(
-    request_obj, task_types, now: datetime, scheme, *, sub_events=None, extras=None
+    request_obj, task_types, now: datetime, scheme, *, sub_events=None, extras=None, dropped=None
 ) -> list[PipelineTask]:
     """
     The tasks a request needs.
@@ -126,6 +126,10 @@ def build_pipeline(
 
     `extras` is a list of `(task name, sub-event index or None)` for additional tasks
     a person asked for on top (for example a second photographer).
+
+    `dropped` is a set of task keys (`ident`s) the person entering the request chose
+    to leave out. Dropping a shoot task drops the editing that follows it; the
+    Event Coordinator and Task Supervisor can't be dropped.
     """
     by_name = {t.task: t for t in task_types}
     editor_of = {editor: shooter for shooter, editor in DERIVED_EDITOR.items()}
@@ -170,6 +174,9 @@ def build_pipeline(
         editor = DERIVED_EDITOR.get(name)
         if editor and editor in by_name:
             entries.append((editor, sub_index, n, task_key(name, sub_index, n)))
+
+    if dropped:
+        entries = [e for e in entries if task_key(e[0], e[1], e[2]) not in dropped and e[3] not in dropped]
 
     if coverage:
         entries.append((TASK_EVENT_COORDINATOR, None, 0, ""))

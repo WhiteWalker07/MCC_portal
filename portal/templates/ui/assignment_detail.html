@@ -14,38 +14,69 @@
     <p class="muted">You can view this request's tasks, but none are in your assignment scope.</p>
   {% endif %}
 
-  <div style="overflow-x:auto">
-    <table class="roster">
-      <thead><tr><th>Task</th><th>Assignee</th><th>Status</th><th>Reassign</th></tr></thead>
-      <tbody>
-        {% for row in task_rows %}
-          <tr>
-            <td>{{ row.task.task }}{% if row.task.additional %} <strong>(additional)</strong>{% endif %}{% if row.task.sub_event %}<br><strong>{{ row.task.sub_event.name }}</strong>{% endif %}{% if row.task.vertical %}<br><span class="muted">{{ row.task.vertical }}</span>{% endif %}</td>
-            <td>{% if row.task.email %}{{ row.task.member }}<br><span class="muted mono">{{ row.task.email }}</span>{% else %}<span class="error">UNFILLED — {{ row.task.reason }}</span>{% endif %}</td>
-            <td><span class="status" data-status="{{ row.task.status }}">{{ row.task.status }}</span></td>
-            <td>
-              {% if row.manageable %}
-                <form method="post" action="{% url 'assignment-reassign' row.task.pk %}" class="row">
-                  {% csrf_token %}
-                  {{ row.form.member_email }}
-                  <button type="submit" class="btn btn--sm btn--primary">{% if row.task.email %}Reassign{% else %}Assign{% endif %}</button>
-                </form>
-                {% if row.removable %}
-                  <form method="post" action="{% url 'assignment-remove' row.task.pk %}" class="row"
-                        onsubmit="return confirm('Remove this {{ row.task.task|lower }}{% if row.task.paired_editors.exists %} and their editing{% endif %} from the event?')">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn--sm btn--danger">Remove</button>
-                  </form>
-                {% endif %}
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% for group in groups %}
+    <div class="stack">
+      {% if group.title %}
+        <h2 class="h2">{{ group.title }}</h2>
+        {% if group.detail %}<p class="muted">{{ group.detail }}</p>{% endif %}
+      {% endif %}
+      {% if group.rows %}
+        <div style="overflow-x:auto">
+          <table class="roster">
+            <thead><tr><th>Task</th><th>Assignee</th><th>Status</th><th>Reassign</th></tr></thead>
+            <tbody>
+              {% for row in group.rows %}
+                <tr>
+                  <td>{{ row.task.task }}{% if row.task.additional %} <strong>(additional)</strong>{% endif %}{% if row.task.vertical %}<br><span class="muted">{{ row.task.vertical }}</span>{% endif %}</td>
+                  <td>{% if row.task.email %}{{ row.task.member }}<br><span class="muted mono">{{ row.task.email }}</span>{% else %}<span class="error">UNFILLED — {{ row.task.reason }}</span>{% endif %}</td>
+                  <td><span class="status" data-status="{{ row.task.status }}">{{ row.task.status }}</span></td>
+                  <td>
+                    {% if row.manageable %}
+                      <form method="post" action="{% url 'assignment-reassign' row.task.pk %}" class="row">
+                        {% csrf_token %}
+                        {{ row.form.member_email }}
+                        <button type="submit" class="btn btn--sm btn--primary">{% if row.task.email %}Reassign{% else %}Assign{% endif %}</button>
+                      </form>
+                      {% if row.removable %}
+                        <form method="post" action="{% url 'assignment-remove' row.task.pk %}" class="row"
+                              onsubmit="return confirm('Delete this {{ row.task.task|lower }}{% if row.task.paired_editors.exists %} and their editing{% endif %} from the event?')">
+                          {% csrf_token %}
+                          <button type="submit" class="btn btn--sm btn--danger">Delete</button>
+                        </form>
+                      {% endif %}
+                    {% else %}
+                      <span class="muted">—</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% elif group.title %}
+        <p class="muted">No tasks here yet.</p>
+      {% endif %}
+
+      {% if group.add_forms %}
+        <details class="fold">
+          <summary>+ Add a task{% if group.title %} to {{ group.title }}{% endif %}</summary>
+          <p class="muted">Adding a Photographer or Videographer also gives that person their own editing task — each shooter edits their own work.</p>
+          <div class="stack">
+            {% for entry in group.add_forms %}
+              <form method="post" action="{% url 'assignment-add' request_obj.pk %}" class="row">
+                {% csrf_token %}
+                {{ entry.form.task_type }}
+                <input type="hidden" name="sub_event" value="{{ group.sub_pk }}" />
+                <span class="field__label" style="min-width:10rem">{{ entry.task_type.task }}</span>
+                {{ entry.form.member_email }}
+                <button type="submit" class="btn btn--sm">Add</button>
+              </form>
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
+    </div>
+  {% endfor %}
 
   {% if co_task or coordinator_form %}
     <h2 class="h2">Additional Event Coordinator</h2>
@@ -78,23 +109,5 @@
     </form>
   {% endif %}
 
-  {% if add_forms %}
-    <h2 class="h2">Add a task</h2>
-    <p class="muted">Adding a Photographer or Videographer also gives that person their own editing task — each shooter edits their own work.
-      {% if add_forms.0.form.has_sub_events %}Choose whether it is for the whole event or one sub-event.{% endif %}
-      You can remove a photographer or videographer (and their editing) with the Remove button above, until their work is done.</p>
-    <div class="stack">
-      {% for entry in add_forms %}
-        <form method="post" action="{% url 'assignment-add' request_obj.pk %}" class="row">
-          {% csrf_token %}
-          {{ entry.form.task_type }}
-          <span class="field__label" style="min-width:10rem">{{ entry.task_type.task }}</span>
-          {% if entry.form.has_sub_events %}{{ entry.form.sub_event }}{% endif %}
-          {{ entry.form.member_email }}
-          <button type="submit" class="btn btn--sm">Add</button>
-        </form>
-      {% endfor %}
-    </div>
-  {% endif %}
 </section>
 {% endblock %}

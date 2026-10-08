@@ -41,12 +41,14 @@ class RemovalError(ValueError):
     """A removal the rules don't allow; the message is shown to the user."""
 
 
-def remove_shooter(task, actor: str) -> list[str]:
+def remove_task(task, actor: str) -> list[str]:
     """
-    Take a photographer or videographer off an event, together with the editing that
-    goes with them (each shooter edits their own work, so it has nothing to attach
-    to once they are gone). Only a task that isn't done yet, on a request that isn't
-    closed. Returns the labels of what was removed.
+    Take a task off a Coverage event. Taking off a photographer or videographer also
+    takes the editing that goes with them (each shooter edits their own work, so it
+    has nothing to attach to once they are gone). Any other task, including an
+    editing task on its own, goes alone. The Event Coordinator and the Task
+    Supervisor can't be removed (reassign them). Only a task that isn't done yet, on
+    a request that isn't closed. Returns the labels of what was removed.
 
     Anyone who had been told about it (the task was confirmed) gets one email
     listing what was taken off them; if the club had been given their contact, it is
@@ -59,8 +61,10 @@ def remove_shooter(task, actor: str) -> list[str]:
     from .workflow import advance_if_covered  # local: workflow imports this module's neighbours
 
     request_obj = task.request
-    if task.task not in DERIVED_EDITOR:
-        raise RemovalError("Only a photographer or videographer can be removed.")
+    if task.task in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR):
+        raise RemovalError(f"The {task.task} can't be removed: reassign it to someone else instead.")
+    if request_obj.type != RequestType.COVERAGE:
+        raise RemovalError("Tasks can only be removed from a Coverage request.")
     if request_obj.status in RequestStatus.TERMINAL:
         raise RemovalError("That request is closed: its team can no longer be changed.")
 

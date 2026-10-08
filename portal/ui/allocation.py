@@ -9,8 +9,9 @@ module builds that page and checks the people chosen by hand; the view in
 
 A multi-day event with sub-events has its own photographer/videographer (and their
 editing) for every sub-event, so the page groups tasks by sub-event. Beside the
-tasks the system proposes, staff can add more with "Add a task" (for example a
-second photographer for one sub-event).
+tasks the system proposes, staff can add more with "+" under a sub-event (for example
+a second photographer for it), and take a proposed task off with "Delete" (it is left
+out when the request is saved; "Restore" brings it back).
 
 A hand pick is checked with the same rules as reassigning a task afterwards
 (`engine.assignment.validate_member`): active, not Out of work, a first-year for
@@ -40,7 +41,7 @@ EXTRA_PREFIX = "extra-"
 MAX_EXTRAS = 40
 
 #: Fields of the posted form that belong to this step, not to the request itself.
-STEP_FIELDS = {"csrfmiddlewaretoken", "step"}
+STEP_FIELDS = {"csrfmiddlewaretoken", "step", "drop", "restore", "dropped"}
 
 
 @dataclass
@@ -57,6 +58,9 @@ class Row:
     note: str = ""  # why nobody was suggested
     warnings: list = field(default_factory=list)
     error: str = ""
+    deletable: bool = True  # the Event Coordinator and Task Supervisor are always on the team
+    deleted: bool = False  # left out by the staff member; shown struck through with a Restore button
+    deleted_with_editing: bool = False  # for a deleted shoot task: its editing is left out too
 
 
 @dataclass
@@ -77,6 +81,8 @@ class Group:
     title: str
     detail: str
     rows: list
+    sub: str = ""  # the sub-event's number as text, or "" for the whole event
+    extras: list = field(default_factory=list)  # the "+" rows added under this heading
 
 
 def _label(member) -> str:
@@ -140,12 +146,33 @@ def extra_keys(extra_rows) -> list[str]:
     return [task_key(name, sub, n) for name, sub, n in number_extras(_extra_pairs(extra_rows))]
 
 
-def pipeline_for(draft, sub_events=(), extra_rows=()):
-    """The tasks this request will have: depends on its type, roles, sub-events and extras."""
+def pipeline_for(draft, sub_events=(), extra_rows=(), dropped=()):
+    """
+    The tasks this request will have: depends on its type, roles, sub-events and
+    extras, less any the staff member deleted.
+    """
     return build_pipeline(
         draft, get_task_types(), timezone.now(), get_points_scheme(),
-        sub_events=ordered_sub_events(sub_events), extras=_extra_pairs(extra_rows),
+        sub_events=ordered_sub_events(sub_events), extras=_extra_pairs(extra_rows), dropped=set(dropped),
     )
+
+
+def dropped_from_post(post, draft, sub_events=(), extra_rows=()) -> set[str]:
+    """
+    The keys of the proposed tasks the staff member has deleted: those carried from
+    earlier presses (`dropped`), plus the one just deleted (`drop`), less the one just
+    restored (`restore`). Only a task the request really has counts, and never the
+    Event Coordinator or Task Supervisor, or an extra (those have their own Remove).
+    """
+    valid = {
+        p.ident
+        for p in pipeline_for(draft, sub_events, extra_rows)
+        if p.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR) and "+" not in p.ident
+    }
+    dropped = {v.strip() for v in post.getlist("dropped")}
+    dropped.add((post.get("drop") or "").strip())
+    dropped.discard((post.get("restore") or "").strip())
+    return dropped & valid
 
 
 def picks_from_post(post, pipeline, extra_rows=()) -> dict[str, str]:
@@ -205,10 +232,11 @@ def _sub_title(sub) -> tuple[str, str]:
     return sub.name, detail
 
 
-def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, extra_errors=None):
+def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, extra_errors=None, dropped=()):
     """
     Everything the allocation page shows: the groups of rows (one group per sub-event,
-    then the whole-event tasks), the "Add a task" rows, and what those need to offer.
+    then the whole-event tasks), each with the "+" rows added under it, and what those
+    need to offer. Deleted tasks are listed (struck through) so they can be restored.
     With no `posted_picks` the selected person in each row is the engine's suggestion;
     with them (the page being shown again after a mistake) it is what had been chosen.
     """
@@ -220,7 +248,8 @@ def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, ex
     team = get_team()
     subs = ordered_sub_events(sub_events)
 
-    pipeline = pipeline_for(draft, subs, extra_rows)
+    dropped = set(dropped)
+    pipeline = pipeline_for(draft, subs, extra_rows, dropped)
     # Valid hand picks are applied so the suggestions for the other roles steer
     # around them, exactly as they will when the request is saved.
     preferred, _ = validate_picks(draft, posted_picks, pipeline)
@@ -259,10 +288,25 @@ def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, ex
             options=options, selected=selected, follows=follows,
             note="" if item.member else (item.reason or "nobody eligible"),
             error=errors.get(task.ident, ""),
+            deletable=task.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR),
         )
         sub_index = subs.index(task.sub_event) if task.sub_event is not None and task.sub_event in subs else None
         rows_by_group.setdefault(sub_index, []).append(row)
         row_of[task.ident] = row
+
+    # The tasks left out, in the place they would have been, so they can be brought back.
+    if dropped:
+        everything = pipeline_for(draft, subs, extra_rows)
+        for task in everything:
+            if task.ident not in dropped:
+                continue
+            row = Row(
+                key=task.ident, task=task.task, vertical=task.vertical, due=None, options=[], selected="",
+                deleted=True,
+                deleted_with_editing=any(t.pairs_with == task.ident and t.ident not in dropped for t in everything),
+            )
+            sub_index = subs.index(task.sub_event) if task.sub_event is not None and task.sub_event in subs else None
+            rows_by_group.setdefault(sub_index, []).append(row)
 
     # Warn (never block) when one person has two on-site roles that overlap in time.
     on_site = [
@@ -279,13 +323,17 @@ def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, ex
                     f"{a.member.name} is also doing {b.pipeline_task.task} at the same time."
                 )
 
-    groups = [
-        Group(*_sub_title(sub), rows=rows_by_group[i]) for i, sub in enumerate(subs) if i in rows_by_group
-    ]
-    if None in rows_by_group:
-        groups.append(
-            Group("Whole event" if subs else "", "Covers the whole request" if subs else "", rows_by_group[None])
+    # Every sub-event has a heading (so a "+" can add to it even if it has no tasks yet),
+    # then the tasks that cover the whole event.
+    groups = [Group(*_sub_title(sub), rows=rows_by_group.get(i, []), sub=str(i)) for i, sub in enumerate(subs)]
+    groups.append(
+        Group(
+            "Whole event" if subs else "", "Covers the whole request" if subs else "",
+            rows_by_group.get(None, []),
         )
+    )
+    for group in groups:
+        group.extras = [row for row in extra_rows if row.sub == group.sub]
 
     # Extra rows: attach the error for each, and offer everyone who could take a task.
     for row in extra_rows:
@@ -295,8 +343,9 @@ def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, ex
     )
     return {
         "groups": groups,
-        "rows": [row for group in groups for row in group.rows],  # every task row, ungrouped
+        "rows": [row for group in groups for row in group.rows if not row.deleted],  # every live task row, ungrouped
         "extra_rows": list(extra_rows),
+        "dropped": sorted(dropped),
         "blank_extra": ExtraRow(index=0),
         "extra_tasks": extra_task_names(),
         "extra_subs": [(str(i), _sub_title(s)[0]) for i, s in enumerate(subs)],

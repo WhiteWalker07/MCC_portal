@@ -1,3 +1,10 @@
+{% if row.deleted %}
+<tr class="muted">
+  <td><s>{{ row.task }}</s>{% if row.vertical %}<br>{{ row.vertical }}{% endif %}</td>
+  <td colspan="2">Deleted: this task{% if row.deleted_with_editing %} and its editing{% endif %} won't be created.</td>
+  <td><button type="submit" name="restore" value="{{ row.key }}" class="btn btn--sm">Restore</button></td>
+</tr>
+{% else %}
 <tr>
   <td>{{ row.task }}{% if row.vertical %}<br><span class="muted">{{ row.vertical }}</span>{% endif %}</td>
   <td>
@@ -10,4 +17,7 @@
     {% for warning in row.warnings %}<p class="muted">⚠ {{ warning }}</p>{% endfor %}
   </td>
   <td>{% if row.due %}{{ row.due|date:"d M, H:i" }}{% else %}<span class="muted">—</span>{% endif %}</td>
+  <td>{% if row.deletable %}<button type="submit" name="drop" value="{{ row.key }}" class="btn btn--sm btn--danger"
+        title="Leave this task out (a photographer's or videographer's editing goes with them)">Delete</button>{% endif %}</td>
 </tr>
+{% endif %}

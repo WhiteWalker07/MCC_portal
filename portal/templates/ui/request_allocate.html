@@ -21,28 +21,33 @@
     {% csrf_token %}
     {% for key, value in carried %}<input type="hidden" name="{{ key }}" value="{{ value }}" />{% endfor %}
 
+    {% for ident in dropped %}<input type="hidden" name="dropped" value="{{ ident }}" />{% endfor %}
+    <p class="muted">Press <strong>+</strong> under a heading to add another task there (an extra photographer or videographer brings their own editing),
+      or <strong>Delete</strong> on a task you don't want. A deleted task isn't created; <strong>Restore</strong> brings it back.</p>
+
     {% for group in groups %}
-      {% if group.title %}
-        <h2 class="h2">{{ group.title }}</h2>
-        {% if group.detail %}<p class="muted">{{ group.detail }}</p>{% endif %}
-      {% endif %}
-      <div style="overflow-x:auto">
-        <table class="roster">
-          <thead><tr><th>Task</th><th>Who</th><th>Due</th></tr></thead>
-          <tbody>{% for row in group.rows %}{% include "ui/_allocate_row.html" with row=row %}{% endfor %}</tbody>
-        </table>
+      <div class="stack js-group">
+        {% if group.title %}
+          <h2 class="h2">{{ group.title }}</h2>
+          {% if group.detail %}<p class="muted">{{ group.detail }}</p>{% endif %}
+        {% endif %}
+        {% if group.rows %}
+          <div style="overflow-x:auto">
+            <table class="roster">
+              <thead><tr><th>Task</th><th>Who</th><th>Due</th><th></th></tr></thead>
+              <tbody>{% for row in group.rows %}{% include "ui/_allocate_row.html" with row=row %}{% endfor %}</tbody>
+            </table>
+          </div>
+        {% endif %}
+        <div class="stack js-extra-rows">
+          {% for row in group.extras %}{% include "ui/_allocate_extra.html" with row=row i=row.index %}{% endfor %}
+        </div>
+        <div class="row"><button type="button" class="btn btn--sm js-add-extra" data-sub="{{ group.sub }}">+ Add a task{% if group.title %} to {{ group.title }}{% endif %}</button></div>
       </div>
     {% endfor %}
 
-    <h2 class="h2">Additional tasks</h2>
-    <p class="muted">Need more people? Press <strong>+</strong> to add another task{% if extra_subs %}, for the whole event or for one sub-event{% endif %}.
-      An extra photographer or videographer brings their own editing.</p>
-    <div id="extra-rows" class="stack">
-      {% for row in extra_rows %}{% include "ui/_allocate_extra.html" with row=row i=forloop.counter0 %}{% endfor %}
-    </div>
     <input type="hidden" name="extra-TOTAL" id="extra-total" value="{{ extra_rows|length }}" />
     <template id="extra-template">{% include "ui/_allocate_extra.html" with row=blank_extra i="__prefix__" %}</template>
-    <div class="row"><button type="button" id="add-extra" class="btn btn--sm">+ Add a task</button></div>
 
     <p class="muted">Saving accepts the request straight away and emails <strong>{{ on_behalf.name }}</strong> ({{ on_behalf.email }}) the
       confirmation with the team copied in, and each person above their assignment. Everyone listed is checked again when you save.
@@ -56,18 +61,23 @@
 </section>
 
 <script>
-  // "+ Add a task": clone the blank row, numbering it after the last one. "Remove"
+  // "+ Add a task": clone the blank row into that heading's list, numbering it after the
+  // last one and pre-selecting the sub-event the button belongs to. "Remove this task"
   // clears the row and hides it, so numbers stay consecutive and it is skipped on save.
   (function () {
-    var rows = document.getElementById("extra-rows");
     var total = document.getElementById("extra-total");
     var template = document.getElementById("extra-template");
-    document.getElementById("add-extra").addEventListener("click", function () {
-      var n = parseInt(total.value, 10);
-      rows.insertAdjacentHTML("beforeend", template.innerHTML.replace(/__prefix__/g, n));
-      total.value = n + 1;
+    document.querySelectorAll(".js-add-extra").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var n = parseInt(total.value, 10);
+        var holder = button.closest(".js-group").querySelector(".js-extra-rows");
+        holder.insertAdjacentHTML("beforeend", template.innerHTML.replace(/__prefix__/g, n));
+        var sub = holder.lastElementChild.querySelector('select[name$="-sub"]');
+        if (sub) sub.value = button.dataset.sub || "";
+        total.value = n + 1;
+      });
     });
-    rows.addEventListener("click", function (event) {
+    document.addEventListener("click", function (event) {
       var button = event.target.closest(".js-remove-extra");
       if (!button) return;
       var row = button.closest(".js-extra-row");
