@@ -208,7 +208,8 @@ def create_task_row(request_obj, pipeline_task, member, reason, *, ref_code, coo
 
 
 def add_task_from_type(
-    request_obj, task_type, member, *, sub=None, status, coordinator_email="", paired=None, now=None
+    request_obj, task_type, member, *, sub=None, status, coordinator_email="", paired=None, now=None,
+    additional=False,
 ):
     """
     Save one more task of `task_type` for `member` on an existing request (the
@@ -228,6 +229,7 @@ def add_task_from_type(
         status=status,
         coordinator_email=coordinator_email or request_obj.coordinator_email or "",
         paired_task=paired,
+        additional=additional,
         created_at=now,
     )
 
@@ -483,6 +485,9 @@ def complete_task(task) -> None:
         _notify_club_coverage_shared(task, request_obj)
         # The Task Supervisor has no "Mark done" of its own: it closes here.
         _close_supervision(request_obj)
+        # So does the other coordinator, if the request has two: the hand-off to
+        # the club has been made, so there is nothing left for them to hand over.
+        _close_other_coordinator(request_obj, task)
 
     # Only ever advance from 'Request Accepted' — a request that's already
     # covered, ready or posted has moved past this point.
@@ -538,6 +543,32 @@ def _advance(request_obj, from_status: str, to_status: str) -> bool:
     if moved:
         request_obj.status = to_status
     return bool(moved)
+
+
+def _close_other_coordinator(request_obj, finished) -> None:
+    """
+    When one of a request's two Event Coordinators hands the coverage to the club,
+    the other's task is closed too: DONE, with no points, because they did not make
+    the hand-off. (Each coordinator is scored on their own task; this one simply
+    was not completed by them.) A no-op when the request has only one.
+    """
+    now = timezone.now()
+    for other in request_obj.tasks.filter(task=TASK_EVENT_COORDINATOR).exclude(pk=finished.pk).exclude(
+        status__in=[TaskStatus.DONE, TaskStatus.UNFILLED]
+    ):
+        other.status = TaskStatus.DONE
+        other.completed_at = now
+        other.points = 0
+        other.points_awarded = True  # settled: nothing to credit, and nothing for a retry to credit
+        other.save(update_fields=["status", "completed_at", "points", "points_awarded"])
+        log_activity(
+            "coordinator-closed",
+            request_obj=request_obj,
+            ref_code=other.ref_code,
+            member=other.email,
+            actor="engine",
+            detail=f"Event Coordinator task closed: {finished.member} handed the coverage to the club",
+        )
 
 
 def _close_supervision(request_obj) -> None:
@@ -864,6 +895,7 @@ def run_deadline_check() -> dict:
     late_count = 0
     for task in overdue:
         coordinator = (task.coordinator_email or "").lower()
+        co_coordinator = (task.request.co_coordinator_email or "").lower()
         supervisor = (task.request.supervisor_email or "").lower()
         assignee = (task.email or "").lower()
         try:
@@ -886,7 +918,7 @@ def run_deadline_check() -> dict:
         recipients = list(
             dict.fromkeys(
                 address
-                for address in (assignee, coordinator, supervisor, settings.head_email or "")
+                for address in (assignee, coordinator, co_coordinator, supervisor, settings.head_email or "")
                 if address
             )
         )

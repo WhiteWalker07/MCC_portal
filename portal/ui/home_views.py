@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.db.models import Q
 from django.shortcuts import render
 from django.utils import timezone
 
@@ -68,7 +69,11 @@ def home(request):
         )
 
     # Requests this account coordinates or supervises, while they are still running.
-    coordinating = live.filter(coordinator_email=roles.email) if roles.is_team else live.none()
+    coordinating = (
+        live.filter(Q(coordinator_email=roles.email) | Q(co_coordinator_email=roles.email))
+        if roles.is_team
+        else live.none()
+    )
     supervising = live.filter(supervisor_email=roles.email) if roles.is_team else live.none()
     context["coordinating"] = list(coordinating[:LIST_LIMIT])
     context["supervising"] = list(supervising[:LIST_LIMIT])

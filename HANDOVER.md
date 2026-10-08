@@ -296,6 +296,24 @@ This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
 
+### Ninth batch (additional Event Coordinator)
+Migration `0010` is schema-only (`Request.co_coordinator_email`, `Task.additional`). Same deploy
+order; no seed step. Existing requests are untouched (no co-coordinator).
+- A Coverage request can have **one extra** Event Coordinator, added by POC/Admin only from
+  Assignments (`views.assignment_add_coordinator` / `assignment_remove_coordinator`, engine
+  `assignment.add_additional_coordinator` / `remove_additional_coordinator`, `CoordinatorError`).
+  The first coordinator stays "main" (`Request.coordinator_email`); the extra is
+  `Request.co_coordinator_email` and has their own task with `Task.additional=True`.
+- Powers: everything the main one can. `Request.coordinator_emails` is the pair; `roles.resolve_roles`
+  (`is_coordinator`), `can_assign`, `can_read_request`, `can_edit_venue`, the Assignments scope, Home,
+  `[Late]` recipients and sub-event notices all use it. The two are different people (reassign
+  dropdowns exclude both).
+- Scoring: each is scored on their own task (same deadline, 12h after the last other task).
+  Whoever shares the drive link and marks covered closes the other's task as DONE with 0 points
+  (`workflow._close_other_coordinator`, logs `coordinator-closed`).
+- Reassigning the additional coordinator changes only `co_coordinator_email`; the main one keeps the
+  old behaviour (`assignment._commit_swap`). Tests: `ui/tests/test_co_coordinator.py`.
+
 ### Eighth batch (per-sub-event teams, extra tasks, remove, landing page)
 Migration `0009` is schema-only (`Task.sub_event`). Same deploy order; no seed step.
 Requests already in the database are untouched (their tasks have no sub-event).

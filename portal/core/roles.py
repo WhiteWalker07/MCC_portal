@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from django.db.models import Q
 from django.utils import timezone
 
 from .constants import (
@@ -89,7 +90,10 @@ def resolve_roles(email: str) -> PortalRoles:
     # whatever requests still name them, until those are reassigned.
     from .models import Request  # local import: avoids a cycle at module load
 
-    is_coordinator = not removed and Request.objects.filter(coordinator_email=address).exists()
+    is_coordinator = (
+        not removed
+        and Request.objects.filter(Q(coordinator_email=address) | Q(co_coordinator_email=address)).exists()
+    )
     is_supervisor = not removed and Request.objects.filter(supervisor_email=address).exists()
 
     is_secretary = address in _lower_all(settings.secretary_emails)
@@ -130,11 +134,13 @@ def resolve_roles(email: str) -> PortalRoles:
 
 
 def can_assign(
-    roles: PortalRoles, task_vertical: str, coordinator_email: str, task_name: str = ""
+    roles: PortalRoles, task_vertical: str, coordinator_email, task_name: str = ""
 ) -> bool:
     """
     May this caller assign or modify a task in `task_vertical` on a request
-    coordinated by `coordinator_email`?
+    coordinated by `coordinator_email`? That is the coordinator's address, or a
+    list of them: pass `request_obj.coordinator_emails` so a request's additional
+    coordinator has exactly the powers the main one has.
 
     Secretaries and admins may act anywhere. A domain head may act within their
     own vertical. An event coordinator may act on the events they coordinate.
@@ -150,7 +156,8 @@ def can_assign(
         return True
     if roles.is_domain_head and task_vertical and roles.domain_head_of == task_vertical:
         return True
-    if coordinator_email and roles.email == str(coordinator_email).strip().lower():
+    coordinators = [coordinator_email] if isinstance(coordinator_email, str) else list(coordinator_email or ())
+    if roles.email and roles.email in {str(e).strip().lower() for e in coordinators if e}:
         return True
     return False
 
@@ -165,7 +172,7 @@ def can_read_request(roles: PortalRoles, request_obj) -> bool:
         return False
     return roles.email in {
         (request_obj.contact_email or "").lower(),
-        (request_obj.coordinator_email or "").lower(),
+        *request_obj.coordinator_emails,
         (request_obj.supervisor_email or "").lower(),
     }
 
@@ -228,7 +235,7 @@ def can_edit_venue(roles: PortalRoles, request_obj) -> bool:
     """
     if roles.email == (request_obj.contact_email or "").lower():
         return True
-    if can_assign(roles, "", request_obj.coordinator_email):
+    if can_assign(roles, "", request_obj.coordinator_emails):
         return True
     # can_assign's domain-head branch needs one specific task's vertical —
     # a venue isn't tied to one, so a domain head qualifies here if they're

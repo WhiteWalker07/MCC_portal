@@ -20,7 +20,7 @@
       <tbody>
         {% for row in task_rows %}
           <tr>
-            <td>{{ row.task.task }}{% if row.task.sub_event %}<br><strong>{{ row.task.sub_event.name }}</strong>{% endif %}{% if row.task.vertical %}<br><span class="muted">{{ row.task.vertical }}</span>{% endif %}</td>
+            <td>{{ row.task.task }}{% if row.task.additional %} <strong>(additional)</strong>{% endif %}{% if row.task.sub_event %}<br><strong>{{ row.task.sub_event.name }}</strong>{% endif %}{% if row.task.vertical %}<br><span class="muted">{{ row.task.vertical }}</span>{% endif %}</td>
             <td>{% if row.task.email %}{{ row.task.member }}<br><span class="muted mono">{{ row.task.email }}</span>{% else %}<span class="error">UNFILLED — {{ row.task.reason }}</span>{% endif %}</td>
             <td><span class="status" data-status="{{ row.task.status }}">{{ row.task.status }}</span></td>
             <td>
@@ -46,6 +46,30 @@
       </tbody>
     </table>
   </div>
+
+  {% if co_task or coordinator_form %}
+    <h2 class="h2">Additional Event Coordinator</h2>
+    {% if co_task %}
+      <p>{{ co_task.member|default:"(unfilled)" }} <span class="muted mono">{{ co_task.email }}</span> coordinates this event alongside
+        {% if request_obj.coordinator_email %}{{ request_obj.coordinator_email }}{% else %}the main coordinator{% endif %}.
+        They can do everything the main coordinator can, and are scored on their own task.
+        Whichever of the two hands the coverage to the club, the other's task closes with no points.</p>
+      {% if can_remove_co_coordinator %}
+        <form method="post" action="{% url 'assignment-remove-coordinator' request_obj.pk %}"
+              onsubmit="return confirm('Remove the additional coordinator from this event?')">
+          {% csrf_token %}
+          <button type="submit" class="btn btn--sm btn--danger">Remove additional coordinator</button>
+        </form>
+      {% endif %}
+    {% else %}
+      <p class="muted">Bring in a second coordinator with all the main coordinator's powers. Only the POC or an Admin can do this, and a request can have one extra.</p>
+      <form method="post" action="{% url 'assignment-add-coordinator' request_obj.pk %}" class="row">
+        {% csrf_token %}
+        {{ coordinator_form.member_email }}
+        <button type="submit" class="btn btn--sm btn--primary">Add additional coordinator</button>
+      </form>
+    {% endif %}
+  {% endif %}
 
   {% if request_obj.status == "Event Covered" and can_mark_ready %}
     <form method="post" action="{% url 'mark-ready' request_obj.pk %}">
