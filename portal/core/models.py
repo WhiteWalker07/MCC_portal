@@ -425,6 +425,12 @@ class Request(models.Model):
     )
 
     coordinator_email = models.EmailField(blank=True, db_index=True)
+    co_coordinator_email = models.EmailField(
+        blank=True,
+        db_index=True,
+        help_text="An additional Event Coordinator (Coverage only), added by the POC/Admin. They have all "
+        "the main coordinator's powers; `coordinator_email` stays the main one.",
+    )
     supervisor_email = models.EmailField(
         blank=True, db_index=True, help_text="The Task Supervisor (Coverage only). Only staff can change it."
     )
@@ -449,6 +455,11 @@ class Request(models.Model):
     @property
     def is_terminal(self) -> bool:
         return self.status in RequestStatus.TERMINAL
+
+    @property
+    def coordinator_emails(self) -> tuple[str, ...]:
+        """Everyone who coordinates this request: the main coordinator, then the additional one if any."""
+        return tuple(e.strip().lower() for e in (self.coordinator_email, self.co_coordinator_email) if e and e.strip())
 
 
 class SubEvent(models.Model):
@@ -540,6 +551,10 @@ class Task(models.Model):
         related_name="paired_editors",
         help_text="On an editing task: the shooter task whose work it edits. "
         "The editor follows the shooter when the shooter is reassigned.",
+    )
+    additional = models.BooleanField(
+        default=False,
+        help_text="On an Event Coordinator task: this is the request's additional coordinator, not the main one.",
     )
     sub_event = models.ForeignKey(
         "SubEvent",

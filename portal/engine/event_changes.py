@@ -509,7 +509,7 @@ def notify_subevent_change(request_obj, action: str, sub, actor: str, team_note:
     ref = request_obj.ref_code
     told = request_obj.status in RequestStatus.CONFIRMED_STATES
     email_service.send(
-        [request_obj.coordinator_email if told else ""] + list(settings.secretary_emails or []),
+        (list(request_obj.coordinator_emails) if told else []) + list(settings.secretary_emails or []),
         f"[Schedule updated] {ref} — {request_obj.event_name}",
         f"A sub-event was {action} on {request_obj.event_name} ({ref}) by the requesting body:\n\n"
         f"  {sub.name}\n"

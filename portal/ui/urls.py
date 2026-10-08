@@ -51,6 +51,16 @@ urlpatterns = [
     path("assignments/<int:pk>/reassign/", views.assignment_reassign, name="assignment-reassign"),
     path("assignments/<int:request_pk>/add/", views.assignment_add, name="assignment-add"),
     path("assignments/tasks/<int:pk>/remove/", views.assignment_remove, name="assignment-remove"),
+    path(
+        "assignments/<int:request_pk>/coordinator/add/",
+        views.assignment_add_coordinator,
+        name="assignment-add-coordinator",
+    ),
+    path(
+        "assignments/<int:request_pk>/coordinator/remove/",
+        views.assignment_remove_coordinator,
+        name="assignment-remove-coordinator",
+    ),
     path("assignments/<int:request_pk>/ready/", views.mark_ready_to_post, name="mark-ready"),
 
     path("approvals/", views.approval_list, name="approval-list"),

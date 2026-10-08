@@ -490,6 +490,25 @@ class AddTaskForm(forms.Form):
         return ReassignForm.MODE_MANUAL if self.cleaned_data.get("member_email") else ReassignForm.MODE_AUTO
 
 
+class AdditionalCoordinatorForm(forms.Form):
+    """Pick the person to add as a request's additional Event Coordinator (POC/Admin only)."""
+
+    member_email = forms.ChoiceField(label="Additional coordinator", widget=forms.Select(attrs={"class": "input"}))
+
+    def __init__(self, *args, eligible=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["member_email"].choices = [("", "— choose a first-year —")] + [
+            (m.email, f"{m.name}" + (f" · {m.vertical_label}" if m.vertical_label else "") + f" · {m.points or 0} pts")
+            for m in eligible
+        ]
+
+    def clean_member_email(self):
+        value = self.cleaned_data["member_email"]
+        if not value:
+            raise forms.ValidationError("Pick who the additional coordinator is.")
+        return value
+
+
 class StrikeForm(forms.Form):
     """
     Manually give a strike (docs/PRD.md §5.7). Strikes are only ever given by

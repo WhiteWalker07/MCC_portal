@@ -160,6 +160,11 @@ separate email. It's a responsibility only — no points.
   their work is done. They are emailed, and the club is told its team changed. The one exception is the
   **Task Supervisor** on your request: you can't change it — only the
   Secretary/POC or Admin can.
+- **A second coordinator.** The POC or an Admin can add one **additional Event
+  Coordinator** to your request (from `Assignments`). They can do everything you
+  can, and you each have your own task and points. Whoever shares the Drive link
+  and marks the event covered finishes it for both: the other coordinator's task
+  closes with no points. Only one extra is allowed.
 - **You are timed too.** Your deadline is **12 hours after the last deadline of
   the request's other tasks**. Finishing on time earns the flat 20 points;
   finishing later loses points on the same curve as a late task, counted from

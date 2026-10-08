@@ -69,9 +69,12 @@ from core.roles import (
 )
 from engine.assign import choose_supervisor, eligible_members, pick_best
 from engine.assignment import (
+    CoordinatorError,
     RemovalError,
+    add_additional_coordinator,
     override_proposed_assignee,
     perform_swap,
+    remove_additional_coordinator,
     remove_shooter,
     validate_member,
 )
@@ -101,6 +104,7 @@ from . import allocation
 from . import dashboard as dashboard_data
 from .forms import (
     AddTaskForm,
+    AdditionalCoordinatorForm,
     AvailabilityForm,
     CommitteeForm,
     EventTimeForm,
@@ -367,7 +371,7 @@ def request_detail(request, pk):
         raise PermissionDenied("You can't view this request.")
     tasks = request_obj.tasks.all()
     can_mark_ready = request_obj.status == RequestStatus.EVENT_COVERED and can_assign(
-        request.roles, "", request_obj.coordinator_email
+        request.roles, "", request_obj.coordinator_emails
     )
     can_edit_venue_flag = (
         request_obj.type == RequestType.COVERAGE
@@ -742,7 +746,11 @@ def assignment_list(request):
     if roles.is_staff_side:
         task_qs = Task.objects.all()
     else:
-        scope = Q(coordinator_email=roles.email) | Q(request__supervisor_email=roles.email)
+        scope = (
+            Q(coordinator_email=roles.email)
+            | Q(request__co_coordinator_email=roles.email)
+            | Q(request__supervisor_email=roles.email)
+        )
         if roles.domain_head_of:
             scope |= Q(vertical=roles.domain_head_of)
         task_qs = Task.objects.filter(scope).distinct()
@@ -817,7 +825,7 @@ def _in_assignment_scope(roles, request_obj, tasks) -> bool:
     """
     if roles.is_staff_side:
         return True
-    is_coordinator = roles.email == (request_obj.coordinator_email or "").lower()
+    is_coordinator = bool(roles.email) and roles.email in request_obj.coordinator_emails
     is_supervisor = roles.email == (request_obj.supervisor_email or "").lower()
     has_domain_task = bool(roles.domain_head_of) and any(
         t.vertical == roles.domain_head_of for t in tasks
@@ -845,7 +853,7 @@ def assignment_detail(request, pk):
 
     task_rows = []
     for task in tasks:
-        manageable = can_assign(roles, task.vertical, request_obj.coordinator_email, task.task)
+        manageable = can_assign(roles, task.vertical, request_obj.coordinator_emails, task.task)
         form = None
         if manageable:
             # The dropdown deliberately spans the whole active pool, not just
@@ -862,7 +870,9 @@ def assignment_detail(request, pk):
                 settings,
                 team,
                 calendar,
-                exclude={task.email} if task.email else set(),
+                exclude=({task.email} if task.email else set())
+                # A request's two coordinators are two different people.
+                | (set(request_obj.coordinator_emails) if task.task == TASK_EVENT_COORDINATOR else set()),
                 require_skill=False,
                 task_name=task.task,
                 vertical=task.vertical,
@@ -897,7 +907,7 @@ def assignment_detail(request, pk):
             continue  # already on this request; reassign it instead of adding again
         if task_type.task == TASK_SUPERVISOR and request_obj.type != RequestType.COVERAGE:
             continue  # only Coverage requests have a supervisor
-        if not can_assign(roles, task_type.vertical, request_obj.coordinator_email, task_type.task):
+        if not can_assign(roles, task_type.vertical, request_obj.coordinator_emails, task_type.task):
             continue
         eligible = eligible_members(
             task_type.required_skill,
@@ -906,6 +916,7 @@ def assignment_detail(request, pk):
             settings,
             team,
             calendar,
+            set(request_obj.coordinator_emails) if task_type.task == TASK_EVENT_COORDINATOR else None,
             task_name=task_type.task,
             vertical=task_type.vertical,
         )
@@ -918,6 +929,20 @@ def assignment_detail(request, pk):
             }
         )
 
+    # An additional Event Coordinator can be added (or removed) by the POC/Admin only,
+    # on a Coverage request that is still open.
+    co_task = next((t for t in tasks if t.task == TASK_EVENT_COORDINATOR and t.additional), None)
+    staff_can_edit = (
+        roles.is_staff_side
+        and request_obj.type == RequestType.COVERAGE
+        and request_obj.status not in RequestStatus.TERMINAL
+    )
+    coordinator_form = (
+        AdditionalCoordinatorForm(eligible=_coordinator_candidates(request_obj))
+        if staff_can_edit and co_task is None
+        else None
+    )
+
     return render(
         request,
         "ui/assignment_detail.html",
@@ -926,7 +951,10 @@ def assignment_detail(request, pk):
             "task_rows": task_rows,
             "add_forms": add_forms,
             "can_manage_any": any(row["manageable"] for row in task_rows),
-            "can_mark_ready": can_assign(roles, "", request_obj.coordinator_email),
+            "can_mark_ready": can_assign(roles, "", request_obj.coordinator_emails),
+            "co_task": co_task,
+            "can_remove_co_coordinator": bool(co_task) and staff_can_edit and co_task.status != TaskStatus.DONE,
+            "coordinator_form": coordinator_form,
         },
     )
 
@@ -958,7 +986,7 @@ def assignment_reassign(request, pk):
     # The Task Supervisor is staff-only — `can_assign` says so by task name, so
     # the event coordinator (whose work it oversees) and heads are refused here
     # even though they may reassign everything else on the request.
-    if not can_assign(roles, task.vertical, request_obj.coordinator_email, task.task):
+    if not can_assign(roles, task.vertical, request_obj.coordinator_emails, task.task):
         raise PermissionDenied("Not allowed to reassign this task.")
     if request_obj.status in RequestStatus.TERMINAL:
         messages.error(request, "That request is closed — its team can no longer be changed.")
@@ -966,6 +994,9 @@ def assignment_reassign(request, pk):
 
     settings = _settings()
     exclude = {task.email} if task.email else set()
+    if task.task == TASK_EVENT_COORDINATOR:
+        # A request's two coordinators are two different people.
+        exclude |= set(request_obj.coordinator_emails)
 
     # The manual-pick pool spans the whole eligible group (any vertical) — the
     # form must be bound against the same broad list it was rendered with, or a
@@ -1041,7 +1072,7 @@ def assignment_remove(request, pk):
     roles = request.roles
     task = get_object_or_404(Task.objects.select_related("request"), pk=pk)
     request_obj = task.request
-    if not can_assign(roles, task.vertical, request_obj.coordinator_email, task.task):
+    if not can_assign(roles, task.vertical, request_obj.coordinator_emails, task.task):
         raise PermissionDenied("Not allowed to remove this task.")
     if not _in_assignment_scope(roles, request_obj, list(request_obj.tasks.all())):
         raise PermissionDenied("You don't have an assignment role on this request.")
@@ -1056,13 +1087,60 @@ def assignment_remove(request, pk):
 
 @login_required
 @require_POST
+def assignment_add_coordinator(request, request_pk):
+    """
+    Add an additional Event Coordinator to a Coverage request. POC/Admin only: the
+    main coordinator cannot bring in a second one, nor can a vertical head.
+    """
+    request_obj = get_object_or_404(Request, pk=request_pk)
+    if not request.roles.is_staff_side:
+        raise PermissionDenied("Only the POC or an Admin can add an additional coordinator.")
+    form = AdditionalCoordinatorForm(request.POST, eligible=_coordinator_candidates(request_obj))
+    if not form.is_valid():
+        messages.error(request, "Pick a first-year to add as the additional coordinator.")
+        return redirect("assignment-detail", pk=request_obj.pk)
+    try:
+        task = add_additional_coordinator(request_obj, form.cleaned_data["member_email"], request.roles.email)
+    except CoordinatorError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"{task.member} added as an additional Event Coordinator.")
+    return redirect("assignment-detail", pk=request_obj.pk)
+
+
+@login_required
+@require_POST
+def assignment_remove_coordinator(request, request_pk):
+    """Take the additional Event Coordinator off a request (POC/Admin only)."""
+    request_obj = get_object_or_404(Request, pk=request_pk)
+    if not request.roles.is_staff_side:
+        raise PermissionDenied("Only the POC or an Admin can remove an additional coordinator.")
+    try:
+        name = remove_additional_coordinator(request_obj, request.roles.email)
+    except CoordinatorError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"{name} is no longer an additional Event Coordinator.")
+    return redirect("assignment-detail", pk=request_obj.pk)
+
+
+def _coordinator_candidates(request_obj):
+    """First-years who could be the request's additional coordinator (not already one of its coordinators)."""
+    return eligible_members(
+        "", False, request_obj, _settings(), _team(), calendar_service(),
+        set(request_obj.coordinator_emails), require_skill=False, task_name=TASK_EVENT_COORDINATOR,
+    )
+
+
+@login_required
+@require_POST
 def assignment_add(request, request_pk):
     roles = request.roles
     request_obj = get_object_or_404(Request, pk=request_pk)
 
     task_type_name = request.POST.get("task_type", "")
     task_type = get_object_or_404(TaskType, task=task_type_name, internal_assignable=True)
-    if not can_assign(roles, task_type.vertical, request_obj.coordinator_email, task_type.task):
+    if not can_assign(roles, task_type.vertical, request_obj.coordinator_emails, task_type.task):
         raise PermissionDenied("Not allowed to add this task.")
     if not _in_assignment_scope(roles, request_obj, list(request_obj.tasks.all())):
         raise PermissionDenied("You don't have an assignment role on this request.")
@@ -1080,11 +1158,14 @@ def assignment_add(request, request_pk):
     # Event Coordinator is unique per request — adding it again reassigns the
     # existing one instead of creating a duplicate.
     existing_coordinator = (
-        request_obj.tasks.filter(task="Event Coordinator").first()
+        request_obj.tasks.filter(task="Event Coordinator", additional=False).first()
         if task_type.task == "Event Coordinator"
         else None
     )
     exclude = {existing_coordinator.email} if existing_coordinator and existing_coordinator.email else set()
+    if task_type.task == "Event Coordinator":
+        # Never make the main coordinator the same person as the additional one.
+        exclude |= set(request_obj.coordinator_emails)
 
     sub_events = list(request_obj.sub_events.all()) if request_obj.is_multiday else []
     # Which part of the event it is for (blank = the whole event). Only a sub-event
@@ -1204,7 +1285,7 @@ def mark_ready_to_post(request, request_pk):
     roles = request.roles
     request_obj = get_object_or_404(Request, pk=request_pk)
 
-    if not can_assign(roles, "", request_obj.coordinator_email):
+    if not can_assign(roles, "", request_obj.coordinator_emails):
         raise PermissionDenied("Not allowed to mark this request ready.")
     if request_obj.status != RequestStatus.EVENT_COVERED:
         messages.error(request, "Request is not Event Covered yet.")

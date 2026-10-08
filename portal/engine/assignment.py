@@ -19,7 +19,15 @@ from django.utils import timezone
 
 from core.activity import log_activity
 from core.config import get_points_scheme
-from core.constants import DERIVED_EDITOR, ROSTER_ROLES, TASK_SUPERVISOR, RequestStatus, TaskStatus
+from core.constants import (
+    DERIVED_EDITOR,
+    ROSTER_ROLES,
+    TASK_EVENT_COORDINATOR,
+    TASK_SUPERVISOR,
+    RequestStatus,
+    RequestType,
+    TaskStatus,
+)
 from core.models import TeamMember
 from services import email as email_service
 from services.calendar import calendar_service
@@ -117,6 +125,149 @@ def remove_shooter(task, actor: str) -> list[str]:
         detail="Removed " + ", ".join(removed_labels),
     )
     return removed_labels
+
+
+class CoordinatorError(ValueError):
+    """An additional-coordinator change the rules don't allow; the message is shown to the user."""
+
+
+def add_additional_coordinator(request_obj, email: str, actor: str):
+    """
+    Give a Coverage request a second Event Coordinator, with all the main
+    coordinator's powers (they appear in Assignments, can reassign, add and remove
+    tasks, mark ready, and hand the coverage to the club). The POC/Admin's call; at
+    most one extra, a different person from the main coordinator, and checked by the
+    usual rules (an active first-year, not Out of work, on the club's campus).
+
+    Once the request is accepted they are confirmed, emailed and added to the club's
+    team list (the club is told); before that they are proposed and the approval
+    confirms them. They are scored on their own task like the main coordinator.
+    """
+    from core.config import get_settings
+    from core.models import Task, TaskType
+
+    from .pipeline import refresh_coordinator_deadline
+    from .workflow import add_task_from_type
+
+    if request_obj.type != RequestType.COVERAGE:
+        raise CoordinatorError("Only a Coverage request has an Event Coordinator.")
+    if request_obj.status in RequestStatus.TERMINAL:
+        raise CoordinatorError("That request is closed: its team can no longer be changed.")
+    if request_obj.co_coordinator_email or request_obj.tasks.filter(task=TASK_EVENT_COORDINATOR, additional=True).exists():
+        raise CoordinatorError("This request already has an additional coordinator: replace or remove them instead.")
+    address = (email or "").strip().lower()
+    if not address:
+        raise CoordinatorError("Pick who the additional coordinator is.")
+    if address in request_obj.coordinator_emails:
+        raise CoordinatorError("That person is already this event's coordinator.")
+    ec_type = TaskType.objects.filter(task=TASK_EVENT_COORDINATOR).first()
+    if ec_type is None:
+        raise CoordinatorError("The Event Coordinator task type isn't set up.")
+
+    verdict = validate_member(
+        address, ec_type.required_skill, ec_type.at_event, request_obj, get_settings(),
+        require_skill=False, task_name=TASK_EVENT_COORDINATOR,
+    )
+    if not verdict.ok:
+        raise CoordinatorError(verdict.reason)
+    member = verdict.member
+
+    accepted = request_obj.status in RequestStatus.CONFIRMED_STATES
+    with transaction.atomic():
+        task = add_task_from_type(
+            request_obj, ec_type, member,
+            status=TaskStatus.CONFIRMED if accepted else TaskStatus.PROPOSED,
+            coordinator_email=request_obj.coordinator_email, additional=True,
+        )
+        request_obj.co_coordinator_email = member.email
+        update_fields = ["co_coordinator_email"]
+        if accepted:
+            request_obj.roster = [
+                *(request_obj.roster or []),
+                {"role": task.label, "name": member.name, "email": member.email, "phone": member.phone or ""},
+            ]
+            update_fields.append("roster")
+        request_obj.save(update_fields=update_fields)
+        # Both coordinators are due at the same time: 12 hours after the last other task.
+        refresh_coordinator_deadline(request_obj)
+        task.refresh_from_db()
+
+    if accepted:
+        notify_assignee(task)
+        email_service.send(
+            request_obj.contact_email,
+            f"[Team update] {request_obj.ref_code} — {request_obj.event_name}",
+            f"{member.name} <{member.email}>"
+            + (f" · {member.phone}" if member.phone else "")
+            + f" is now also coordinating {request_obj.event_name} ({request_obj.ref_code}), "
+            "alongside the existing coordinator.",
+            in_reply_to=email_service.thread_id_for(request_obj.ref_code),
+        )
+    log_activity(
+        "coordinator-added",
+        request_obj=request_obj,
+        ref_code=request_obj.ref_code,
+        actor=actor,
+        member=member.email,
+        detail=f"Additional Event Coordinator: {member.name}",
+    )
+    return task
+
+
+def remove_additional_coordinator(request_obj, actor: str) -> str:
+    """
+    Take the additional coordinator off a request, if their task isn't already
+    closed. Returns their name. The main coordinator is unaffected (to replace the
+    main one, reassign them).
+    """
+    from core.models import Task
+
+    with transaction.atomic():
+        task = (
+            Task.objects.select_for_update()
+            .filter(request=request_obj, task=TASK_EVENT_COORDINATOR, additional=True)
+            .first()
+        )
+        if task is None:
+            raise CoordinatorError("This request has no additional coordinator.")
+        if request_obj.status in RequestStatus.TERMINAL:
+            raise CoordinatorError("That request is closed: its team can no longer be changed.")
+        if task.status == TaskStatus.DONE:
+            raise CoordinatorError("Their task is already closed, so they can't be removed.")
+        name, email, status = task.member, task.email, task.status
+        label = task.label
+        task.delete()
+        request_obj.co_coordinator_email = ""
+        update_fields = ["co_coordinator_email"]
+        if request_obj.roster:
+            roster = list(request_obj.roster)
+            entry = next((e for e in roster if e.get("role") == label and e.get("email") == email), None)
+            if entry is not None:
+                roster.remove(entry)
+                request_obj.roster = roster
+                update_fields.append("roster")
+        request_obj.save(update_fields=update_fields)
+
+    ref = request_obj.ref_code
+    if email and status in (TaskStatus.CONFIRMED, TaskStatus.LATE):
+        email_service.send(
+            email,
+            f"[Removed] {ref} Event Coordinator — {request_obj.event_name}",
+            f"You are no longer an additional Event Coordinator for {request_obj.event_name} ({ref}). "
+            "If you think this is a mistake, ask the POC.\n",
+        )
+    if request_obj.status in RequestStatus.CONFIRMED_STATES and email:
+        email_service.send(
+            request_obj.contact_email,
+            f"[Team update] {ref} — {request_obj.event_name}",
+            f"{name} <{email}> is no longer also coordinating {request_obj.event_name} ({ref}).",
+            in_reply_to=email_service.thread_id_for(ref),
+        )
+    log_activity(
+        "coordinator-removed", request_obj=request_obj, ref_code=ref, actor=actor, member=email,
+        detail=f"Additional Event Coordinator removed: {name}",
+    )
+    return name
 
 
 def override_proposed_assignee(task, member) -> None:
@@ -277,7 +428,6 @@ def perform_swap(task, new_member, request_obj) -> None:
 
 @transaction.atomic
 def _commit_swap(task, new_member, request_obj, old_email: str) -> None:
-    from core.constants import TASK_EVENT_COORDINATOR
     from core.models import Task
 
     confirmed_state = request_obj.status in RequestStatus.CONFIRMED_STATES
@@ -341,7 +491,13 @@ def _commit_swap(task, new_member, request_obj, old_email: str) -> None:
 
     # Replacing the coordinator re-points the whole request at the new one, or
     # every other task on it would still escalate to the person who left.
-    if task.task == TASK_EVENT_COORDINATOR:
+    if task.task == TASK_EVENT_COORDINATOR and task.additional:
+        # The additional coordinator is a person of their own: replacing them only
+        # changes who that is. The main coordinator, and what other tasks escalate
+        # to, stay as they were.
+        request_obj.co_coordinator_email = new_member.email
+        request_obj.save(update_fields=["co_coordinator_email"])
+    elif task.task == TASK_EVENT_COORDINATOR:
         request_obj.coordinator_email = new_member.email
         request_obj.save(update_fields=["coordinator_email"])
         Task.objects.filter(request=request_obj).exclude(pk=task.pk).update(

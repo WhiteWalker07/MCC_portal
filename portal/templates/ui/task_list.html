@@ -8,7 +8,7 @@
       {% for t in tasks %}
         <li class="tcard{% if t.status == 'LATE' %} tcard--late{% endif %}">
           <div class="tcard__main">
-            <div class="tcard__title">{{ t.label }}</div>
+            <div class="tcard__title">{{ t.label }}{% if t.additional %} <span class="muted">(additional)</span>{% endif %}</div>
             <div class="tcard__sub">{{ t.ref_code }} · {{ t.event_name }}{% if t.sub_event %} · {{ t.event_start|date:"D d M, H:i" }}{% if t.venue %} · {{ t.venue }}{% endif %}{% endif %}</div>
             <div class="tcard__chips">
               {% if t.points %}<span class="chip-pts">+{{ t.points }} pts</span>{% endif %}
