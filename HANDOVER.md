@@ -315,6 +315,16 @@ No migration. Two pages changed; both group by sub-event and put a **+** and **D
   coordinator's deadline follows what is left; `propose_team` / `process_new_request` take the
   same `dropped`. Only the POC/Admin back-entry flow reads these fields.
 
+### Ninth batch addendum (additional coordinator during back entry)
+The team page has **+ Add an additional Event Coordinator** (Coverage only, under "Whole event"):
+a submit button `add_co`, carried as a hidden `co_coordinator=1`; its row's Delete (`drop=Event
+Coordinator+1`) turns it off. `build_pipeline(..., co_coordinator=True)` adds `Event Coordinator+1`
+(`PipelineTask.additional`), staffed like any task so it can't equal the main coordinator
+(`already_assigned`; a hand-picked duplicate is refused in `allocation.validate_picks`).
+`process_new_request(..., co_coordinator=)` saves it with `Task.additional` and sets
+`Request.co_coordinator_email`; if nobody is eligible it is skipped. After saving, the POC/Admin
+manage it from Assignments as before.
+
 ### Ninth batch (additional Event Coordinator)
 Migration `0010` is schema-only (`Request.co_coordinator_email`, `Task.additional`). Same deploy
 order; no seed step. Existing requests are untouched (no co-coordinator).

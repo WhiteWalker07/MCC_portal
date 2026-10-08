@@ -145,7 +145,8 @@ def staff_pipeline(
 
 
 def propose_team(
-    request_obj, preferred: dict[str, TeamMember] | None = None, *, sub_events=None, extras=None, dropped=None
+    request_obj, preferred: dict[str, TeamMember] | None = None, *, sub_events=None, extras=None, dropped=None,
+    co_coordinator=False,
 ) -> list[Staffed]:
     """
     The team the engine would pick for an unsaved request, with any hand picks
@@ -156,6 +157,7 @@ def propose_team(
     pipeline = build_pipeline(
         request_obj, get_task_types(), timezone.now(), get_points_scheme(),
         sub_events=ordered_sub_events(sub_events or []), extras=extras, dropped=dropped,
+        co_coordinator=co_coordinator,
     )
     return staff_pipeline(
         request_obj, pipeline, get_settings(), get_team(), calendar_service(), preferred
@@ -203,6 +205,7 @@ def create_task_row(request_obj, pipeline_task, member, reason, *, ref_code, coo
         reason="" if member else reason,
         coordinator_email=coordinator_email,
         paired_task=paired,
+        additional=pipeline_task.additional,
         created_at=now,
     )
 
@@ -235,7 +238,8 @@ def add_task_from_type(
 
 
 def process_new_request(
-    request_obj, *, skip_approval: bool = False, preferred=None, extras=None, dropped=None
+    request_obj, *, skip_approval: bool = False, preferred=None, extras=None, dropped=None,
+    co_coordinator=False,
 ) -> None:
     """
     Take a freshly submitted request from 'New' to either 'Pending for POC
@@ -247,7 +251,8 @@ def process_new_request(
     away (short-notice Coverage and Posts included). `preferred` is the team they
     chose by hand for that request (task ident -> TeamMember), already validated,
     and `extras` the additional tasks they asked for ([(task name, sub-event index)]);
-    `dropped` is the set of task keys they chose to leave out.
+    `dropped` is the set of task keys they chose to leave out, and `co_coordinator`
+    asks for an additional Event Coordinator.
 
     A multi-day event with sub-events gets its own photographer/videographer (and
     their editing) for each sub-event, so the sub-events must already be saved.
@@ -268,12 +273,22 @@ def process_new_request(
     pipeline = build_pipeline(
         request_obj, task_types, now, scheme,
         sub_events=ordered_sub_events(request_obj.sub_events.all()), extras=extras, dropped=dropped,
+        co_coordinator=co_coordinator,
     )
     staffed_list = staff_pipeline(request_obj, pipeline, settings, team, calendar, preferred)
+    # An additional coordinator nobody is eligible for is simply not created (the team
+    # page already told the person entering the request); the POC can add one later.
+    staffed_list = [s for s in staffed_list if s.member or not s.pipeline_task.additional]
 
     coordinator_email = next(
-        (s.member.email for s in staffed_list if s.member and s.pipeline_task.task == TASK_EVENT_COORDINATOR), ""
+        (
+            s.member.email
+            for s in staffed_list
+            if s.member and s.pipeline_task.task == TASK_EVENT_COORDINATOR and not s.pipeline_task.additional
+        ),
+        "",
     )
+    co_coordinator_email = next((s.member.email for s in staffed_list if s.member and s.pipeline_task.additional), "")
     supervisor_email = next(
         (s.member.email for s in staffed_list if s.member and s.pipeline_task.task == TASK_SUPERVISOR), ""
     )
@@ -297,7 +312,8 @@ def process_new_request(
             )
         request_obj.coordinator_email = coordinator_email
         request_obj.supervisor_email = supervisor_email
-        request_obj.save(update_fields=["coordinator_email", "supervisor_email"])
+        request_obj.co_coordinator_email = co_coordinator_email
+        request_obj.save(update_fields=["coordinator_email", "supervisor_email", "co_coordinator_email"])
 
     log_activity(
         "created",

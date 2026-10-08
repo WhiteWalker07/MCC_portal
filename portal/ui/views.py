@@ -253,7 +253,7 @@ def request_new(request):
             new_request.roles_needed = form.cleaned_data.get("roles_needed") or []
             new_request.platforms = form.cleaned_data.get("platforms") or []
 
-            preferred, extra_pairs, dropped = None, None, None
+            preferred, extra_pairs, dropped, co_coordinator = None, None, None, False
             if on_behalf:
                 # Only the club's campus is needed to pick a team; the rest happens
                 # when the request is really saved.
@@ -261,7 +261,10 @@ def request_new(request):
                 draft_subs = allocation.draft_sub_events(subevents) if wants_subevents else []
                 extra_rows, extra_errors = allocation.extras_from_post(request.POST, len(draft_subs))
                 dropped = allocation.dropped_from_post(request.POST, new_request, draft_subs, extra_rows)
-                pipeline = allocation.pipeline_for(new_request, draft_subs, extra_rows, dropped)
+                co_coordinator = (
+                    new_request.type == RequestType.COVERAGE and allocation.co_coordinator_from_post(request.POST)
+                )
+                pipeline = allocation.pipeline_for(new_request, draft_subs, extra_rows, dropped, co_coordinator)
                 posted = allocation.picks_from_post(request.POST, pipeline, extra_rows)
                 preferred, errors = allocation.validate_picks(new_request, posted, pipeline)
                 if step != "confirm" or errors or extra_errors:
@@ -278,7 +281,8 @@ def request_new(request):
                             "carried": allocation.carried_fields(request.POST),
                             "is_multiday": multiday,
                             **allocation.build_page(
-                                new_request, draft_subs, extra_rows, posted, errors, extra_errors, dropped
+                                new_request, draft_subs, extra_rows, posted, errors, extra_errors, dropped,
+                                co_coordinator,
                             ),
                         },
                     )
@@ -298,7 +302,7 @@ def request_new(request):
             # applied as the request is staffed.
             process_new_request(
                 new_request, skip_approval=on_behalf is not None, preferred=preferred, extras=extra_pairs,
-                dropped=dropped,
+                dropped=dropped, co_coordinator=co_coordinator,
             )
             new_request.refresh_from_db()
 
@@ -972,6 +976,14 @@ def assignment_detail(request, pk):
         if staff_can_edit and co_task is None
         else None
     )
+    # Staff always see the section; when a coordinator can't be added, it says why.
+    coordinator_note = ""
+    if roles.is_staff_side and not staff_can_edit:
+        coordinator_note = (
+            "Only a Coverage request has an Event Coordinator, so there is nobody to add here."
+            if request_obj.type != RequestType.COVERAGE
+            else f"This request is {request_obj.status}, so its team can no longer be changed."
+        )
 
     return render(
         request,
@@ -985,6 +997,7 @@ def assignment_detail(request, pk):
             "co_task": co_task,
             "can_remove_co_coordinator": bool(co_task) and staff_can_edit and co_task.status != TaskStatus.DONE,
             "coordinator_form": coordinator_form,
+            "coordinator_note": coordinator_note,
         },
     )
 

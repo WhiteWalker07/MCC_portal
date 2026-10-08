@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from django.utils import timezone
 
 from core.config import get_points_scheme, get_settings, get_task_types, get_team
-from core.constants import TASK_EVENT_COORDINATOR, TASK_SUPERVISOR
+from core.constants import TASK_EVENT_COORDINATOR, TASK_SUPERVISOR, RequestType
 from engine.assign import eligible_members
 from engine.assignment import validate_member
 from engine.pipeline import build_pipeline, number_extras, ordered_sub_events, task_key
@@ -41,7 +41,10 @@ EXTRA_PREFIX = "extra-"
 MAX_EXTRAS = 40
 
 #: Fields of the posted form that belong to this step, not to the request itself.
-STEP_FIELDS = {"csrfmiddlewaretoken", "step", "drop", "restore", "dropped"}
+STEP_FIELDS = {"csrfmiddlewaretoken", "step", "drop", "restore", "dropped", "co_coordinator", "add_co"}
+
+#: The key of the additional Event Coordinator row (the main one is "Event Coordinator").
+CO_COORDINATOR_KEY = "Event Coordinator+1"
 
 
 @dataclass
@@ -146,15 +149,27 @@ def extra_keys(extra_rows) -> list[str]:
     return [task_key(name, sub, n) for name, sub, n in number_extras(_extra_pairs(extra_rows))]
 
 
-def pipeline_for(draft, sub_events=(), extra_rows=(), dropped=()):
+def pipeline_for(draft, sub_events=(), extra_rows=(), dropped=(), co_coordinator=False):
     """
     The tasks this request will have: depends on its type, roles, sub-events and
-    extras, less any the staff member deleted.
+    extras, less any the staff member deleted, plus an additional Event Coordinator
+    if one was asked for.
     """
     return build_pipeline(
         draft, get_task_types(), timezone.now(), get_points_scheme(),
         sub_events=ordered_sub_events(sub_events), extras=_extra_pairs(extra_rows), dropped=set(dropped),
+        co_coordinator=co_coordinator,
     )
+
+
+def co_coordinator_from_post(post) -> bool:
+    """
+    Whether an additional Event Coordinator is wanted: asked for this time (`add_co`)
+    or earlier (the carried `co_coordinator`), unless its row's Delete was just pressed.
+    """
+    if (post.get("drop") or "").strip() == CO_COORDINATOR_KEY:
+        return False
+    return bool(post.get("add_co") or post.get("co_coordinator") == "1")
 
 
 def dropped_from_post(post, draft, sub_events=(), extra_rows=()) -> set[str]:
@@ -223,6 +238,11 @@ def validate_picks(draft, picks: dict[str, str], pipeline):
             preferred[key] = result.member
         else:
             errors[key] = result.reason
+    # The two coordinators are two different people.
+    main, extra = preferred.get(TASK_EVENT_COORDINATOR), preferred.get(CO_COORDINATOR_KEY)
+    if main is not None and extra is not None and main.email == extra.email:
+        errors[CO_COORDINATOR_KEY] = f"{extra.name} is already the Event Coordinator: choose someone else."
+        del preferred[CO_COORDINATOR_KEY]
     return preferred, errors
 
 
@@ -232,7 +252,9 @@ def _sub_title(sub) -> tuple[str, str]:
     return sub.name, detail
 
 
-def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, extra_errors=None, dropped=()):
+def build_page(
+    draft, sub_events, extra_rows, posted_picks=None, errors=None, extra_errors=None, dropped=(), co_coordinator=False
+):
     """
     Everything the allocation page shows: the groups of rows (one group per sub-event,
     then the whole-event tasks), each with the "+" rows added under it, and what those
@@ -249,7 +271,7 @@ def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, ex
     subs = ordered_sub_events(sub_events)
 
     dropped = set(dropped)
-    pipeline = pipeline_for(draft, subs, extra_rows, dropped)
+    pipeline = pipeline_for(draft, subs, extra_rows, dropped, co_coordinator)
     # Valid hand picks are applied so the suggestions for the other roles steer
     # around them, exactly as they will when the request is saved.
     preferred, _ = validate_picks(draft, posted_picks, pipeline)
@@ -261,8 +283,8 @@ def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, ex
     row_of: dict[str, Row] = {}
     for item in staffed:
         task = item.pipeline_task
-        if "+" in task.ident:
-            continue  # an extra task (and its editing) is shown in the "Add a task" area
+        if "+" in task.ident and not task.additional:
+            continue  # an extra task (and its editing) is shown under its sub-event's "+"
         # An editing task follows its shoot only if the shoot has someone to follow.
         follows = shoot_name.get(task.pairs_with, "") if holders_by_key.get(task.pairs_with) is not None else ""
         pool = eligible_members(
@@ -284,11 +306,12 @@ def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, ex
             if held is not None:
                 options.insert(0, (held.email, _label(held)))
         row = Row(
-            key=task.ident, task=task.task, vertical=task.vertical, due=task.deadline,
+            key=task.ident, task=f"{task.task} (additional)" if task.additional else task.task,
+            vertical=task.vertical, due=task.deadline,
             options=options, selected=selected, follows=follows,
             note="" if item.member else (item.reason or "nobody eligible"),
             error=errors.get(task.ident, ""),
-            deletable=task.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR),
+            deletable=task.additional or task.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR),
         )
         sub_index = subs.index(task.sub_event) if task.sub_event is not None and task.sub_event in subs else None
         rows_by_group.setdefault(sub_index, []).append(row)
@@ -346,6 +369,9 @@ def build_page(draft, sub_events, extra_rows, posted_picks=None, errors=None, ex
         "rows": [row for group in groups for row in group.rows if not row.deleted],  # every live task row, ungrouped
         "extra_rows": list(extra_rows),
         "dropped": sorted(dropped),
+        "co_coordinator": co_coordinator,
+        # The "+ Add an additional Event Coordinator" button: Coverage only, once.
+        "can_add_co": draft.type == RequestType.COVERAGE and not co_coordinator,
         "blank_extra": ExtraRow(index=0),
         "extra_tasks": extra_task_names(),
         "extra_subs": [(str(i), _sub_title(s)[0]) for i, s in enumerate(subs)],

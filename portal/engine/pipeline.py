@@ -72,6 +72,8 @@ class PipelineTask:
     #: (start, end) the person must be free for / the task is about, when that is a
     #: sub-event's own time instead of the whole event's.
     window: tuple | None = None
+    #: True for the request's additional Event Coordinator (the main one is not).
+    additional: bool = False
 
     @property
     def ident(self) -> str:
@@ -113,7 +115,8 @@ def number_extras(extras) -> list[tuple[str, int | None, int]]:
 
 
 def build_pipeline(
-    request_obj, task_types, now: datetime, scheme, *, sub_events=None, extras=None, dropped=None
+    request_obj, task_types, now: datetime, scheme, *, sub_events=None, extras=None, dropped=None,
+    co_coordinator=False,
 ) -> list[PipelineTask]:
     """
     The tasks a request needs.
@@ -130,6 +133,9 @@ def build_pipeline(
     `dropped` is a set of task keys (`ident`s) the person entering the request chose
     to leave out. Dropping a shoot task drops the editing that follows it; the
     Event Coordinator and Task Supervisor can't be dropped.
+
+    `co_coordinator` asks for an additional Event Coordinator (Coverage only), staffed
+    like any task but never the same person as the main one.
     """
     by_name = {t.task: t for t in task_types}
     editor_of = {editor: shooter for shooter, editor in DERIVED_EDITOR.items()}
@@ -180,6 +186,8 @@ def build_pipeline(
 
     if coverage:
         entries.append((TASK_EVENT_COORDINATOR, None, 0, ""))
+        if co_coordinator:
+            entries.append((TASK_EVENT_COORDINATOR, None, 1, ""))
         entries.append((TASK_SUPERVISOR, None, 0, ""))
 
     pipeline: list[PipelineTask] = []
@@ -203,6 +211,7 @@ def build_pipeline(
                 key=task_key(name, sub_index, n),
                 sub_event=sub,
                 window=(sub.start, sub.end) if sub else None,
+                additional=name == TASK_EVENT_COORDINATOR and n > 0,
             )
         )
 

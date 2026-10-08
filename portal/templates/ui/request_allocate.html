@@ -22,6 +22,7 @@
     {% for key, value in carried %}<input type="hidden" name="{{ key }}" value="{{ value }}" />{% endfor %}
 
     {% for ident in dropped %}<input type="hidden" name="dropped" value="{{ ident }}" />{% endfor %}
+    {% if co_coordinator %}<input type="hidden" name="co_coordinator" value="1" />{% endif %}
     <p class="muted">Press <strong>+</strong> under a heading to add another task there (an extra photographer or videographer brings their own editing),
       or <strong>Delete</strong> on a task you don't want. A deleted task isn't created; <strong>Restore</strong> brings it back.</p>
 
@@ -42,7 +43,11 @@
         <div class="stack js-extra-rows">
           {% for row in group.extras %}{% include "ui/_allocate_extra.html" with row=row i=row.index %}{% endfor %}
         </div>
-        <div class="row"><button type="button" class="btn btn--sm js-add-extra" data-sub="{{ group.sub }}">+ Add a task{% if group.title %} to {{ group.title }}{% endif %}</button></div>
+        <div class="row">
+          <button type="button" class="btn btn--sm js-add-extra" data-sub="{{ group.sub }}">+ Add a task{% if group.title %} to {{ group.title }}{% endif %}</button>
+          {% if not group.sub and can_add_co %}<button type="submit" name="add_co" value="1" class="btn btn--sm"
+            title="A second coordinator with all the main coordinator's powers; each is scored on their own task">+ Add an additional Event Coordinator</button>{% endif %}
+        </div>
       </div>
     {% endfor %}
 

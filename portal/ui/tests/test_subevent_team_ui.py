@@ -356,6 +356,96 @@ class DeleteAndPlusTests(Base):
         self.assertEqual(self.saved().tasks.filter(task="Photographer").count(), 2)
 
 
+class AdditionalCoordinatorOnTeamPageTests(Base):
+    """Choosing a second Event Coordinator while entering a request for a club."""
+
+    def rows(self, response):
+        return {r.key: r for r in response.context["rows"]}
+
+    def test_the_button_is_offered_once_under_the_whole_event(self):
+        page = self.post()
+        self.assertContains(page, 'name="add_co" value="1"')
+        self.assertTrue(page.context["can_add_co"])
+        self.assertNotContains(self.post(add_co="1"), 'name="add_co"')
+
+    def test_pressing_it_adds_a_row_with_a_dropdown_and_nothing_is_saved(self):
+        page = self.post(add_co="1")
+        row = self.rows(page)["Event Coordinator+1"]
+        self.assertEqual((row.task, row.deletable, row.deleted), ("Event Coordinator (additional)", True, False))
+        self.assertContains(page, 'name="pick:Event Coordinator+1"')
+        self.assertContains(page, 'name="co_coordinator" value="1"')
+        self.assertContains(page, 'name="drop" value="Event Coordinator+1"')
+        self.assertEqual((Request.objects.count(), Task.objects.count(), mail.outbox), (0, 0, []))
+
+    def test_the_two_coordinators_are_proposed_as_different_people(self):
+        rows = self.rows(self.post(add_co="1"))
+        self.assertTrue(rows["Event Coordinator"].selected)
+        self.assertTrue(rows["Event Coordinator+1"].selected)
+        self.assertNotEqual(rows["Event Coordinator"].selected, rows["Event Coordinator+1"].selected)
+
+    def test_the_choice_is_remembered_and_delete_takes_it_away_again(self):
+        self.assertIn("Event Coordinator+1", self.rows(self.post(co_coordinator="1")))
+        gone = self.post(co_coordinator="1", drop="Event Coordinator+1")
+        self.assertNotIn("Event Coordinator+1", self.rows(gone))
+        self.assertTrue(gone.context["can_add_co"])
+
+    def test_saving_creates_both_coordinators_confirmed_and_due_together(self):
+        self.post(step="confirm", co_coordinator="1")
+        request_obj = self.saved()
+        main = request_obj.tasks.get(task="Event Coordinator", additional=False)
+        extra = request_obj.tasks.get(task="Event Coordinator", additional=True)
+        self.assertNotEqual(main.email, extra.email)
+        self.assertEqual((request_obj.coordinator_email, request_obj.co_coordinator_email), (main.email, extra.email))
+        self.assertEqual((main.status, extra.status), (TaskStatus.CONFIRMED, TaskStatus.CONFIRMED))
+        self.assertEqual(main.deadline, extra.deadline)
+        self.assertEqual(extra.coordinator_email, main.email)
+        roles = [(e["email"], e["role"]) for e in request_obj.roster]
+        self.assertIn((main.email, "Event Coordinator"), roles)
+        self.assertIn((extra.email, "Event Coordinator"), roles)
+
+    def test_both_are_emailed_and_both_can_run_the_request(self):
+        self.post(step="confirm", co_coordinator="1")
+        request_obj = self.saved()
+        told = {m.to[0] for m in mail.outbox if m.subject.startswith("[Assigned]") and "Event Coordinator" in m.subject}
+        self.assertEqual(told, set(request_obj.coordinator_emails))
+        from core.roles import resolve_roles
+
+        for email in request_obj.coordinator_emails:
+            self.assertTrue(resolve_roles(email).is_coordinator)
+
+    def test_hand_picked_coordinators_are_used(self):
+        self.post(step="confirm", co_coordinator="1",
+                  picks={"Event Coordinator": self.ravi.email, "Event Coordinator+1": self.vic.email})
+        request_obj = self.saved()
+        self.assertEqual((request_obj.coordinator_email, request_obj.co_coordinator_email), (self.ravi.email, self.vic.email))
+
+    def test_the_same_person_for_both_is_refused_and_nothing_is_saved(self):
+        response = self.post(step="confirm", co_coordinator="1",
+                             picks={"Event Coordinator": self.ravi.email, "Event Coordinator+1": self.ravi.email})
+        self.assertEqual(Request.objects.count(), 0)
+        self.assertContains(response, "is already the Event Coordinator")
+
+    def test_without_the_button_there_is_no_additional_coordinator(self):
+        self.post(step="confirm")
+        request_obj = self.saved()
+        self.assertEqual(request_obj.co_coordinator_email, "")
+        self.assertFalse(request_obj.tasks.filter(additional=True).exists())
+
+    def test_the_poc_can_still_remove_it_afterwards_from_assignments(self):
+        self.post(step="confirm", co_coordinator="1")
+        request_obj = self.saved()
+        self.client.force_login(self.poc)
+        self.client.post(reverse("assignment-remove-coordinator", args=[request_obj.pk]))
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.co_coordinator_email, "")
+        self.assertFalse(request_obj.tasks.filter(additional=True).exists())
+
+    def test_a_clubs_own_request_cannot_ask_for_one(self):
+        self.client.force_login(self.club)
+        self.client.post(reverse("request-new"), {**self.body(), "co_coordinator": "1", "add_co": "1"})
+        self.assertEqual(self.saved().co_coordinator_email, "")
+
+
 class AssignmentsAfterwardsTests(Base):
     def setUp(self):
         super().setUp()
