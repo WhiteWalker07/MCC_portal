@@ -1,0 +1,26 @@
+<div class="stack subevent-row js-extra-row">
+  <div class="grid2">
+    <label class="field"><span class="field__label">Task</span>
+      <select class="input" name="extra-{{ i }}-task">
+        <option value="">— choose a task —</option>
+        {% for name in extra_tasks %}<option value="{{ name }}"{% if row.task == name %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </label>
+    {% if extra_subs %}
+      <label class="field"><span class="field__label">For</span>
+        <select class="input" name="extra-{{ i }}-sub">
+          <option value=""{% if not row.sub %} selected{% endif %}>The whole event</option>
+          {% for number, name in extra_subs %}<option value="{{ number }}"{% if row.sub == number %} selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
+    {% endif %}
+  </div>
+  <label class="field"><span class="field__label">Who</span>
+    <select class="input" name="extra-{{ i }}-who">
+      <option value=""{% if not row.who %} selected{% endif %}>Let the system decide</option>
+      {% for email, label in extra_people %}<option value="{{ email }}"{% if row.who == email %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  {% if row.error %}<p class="error">{{ row.error }}</p>{% endif %}
+  <div class="row"><button type="button" class="btn btn--danger btn--sm js-remove-extra">Remove this task</button></div>
+</div>

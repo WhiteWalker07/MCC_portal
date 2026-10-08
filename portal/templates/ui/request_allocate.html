@@ -4,7 +4,8 @@
 <section class="card stack">
   <h1>Choose the team</h1>
   <p class="note">Nothing is saved or sent yet. This request is for <strong>{{ on_behalf.name }}</strong> ({{ on_behalf.acronym }}).
-    Each task shows the person the system would pick; change anyone you like, then press <strong>Save and send emails</strong>.</p>
+    Each task shows the person the system would pick; change anyone you like, add more tasks if the event needs them, then press
+    <strong>Save and send emails</strong>.</p>
 
   <dl class="dl">
     <div><dt>Event</dt><dd>{{ draft.event_name|default:"(untitled)" }} <span class="muted">· {{ draft.type }}</span></dd></div>
@@ -20,28 +21,28 @@
     {% csrf_token %}
     {% for key, value in carried %}<input type="hidden" name="{{ key }}" value="{{ value }}" />{% endfor %}
 
-    <div style="overflow-x:auto">
-      <table class="roster">
-        <thead><tr><th>Task</th><th>Who</th><th>Due</th></tr></thead>
-        <tbody>
-          {% for row in rows %}
-            <tr>
-              <td>{{ row.task }}{% if row.vertical %}<br><span class="muted">{{ row.vertical }}</span>{% endif %}</td>
-              <td>
-                <select class="input" name="pick:{{ row.task }}" aria-label="Who does {{ row.task }}">
-                  <option value=""{% if not row.selected %} selected{% endif %}>{% if row.follows %}Same person as the {{ row.follows }}{% else %}Let the system decide{% endif %}</option>
-                  {% for email, label in row.options %}<option value="{{ email }}"{% if row.selected == email %} selected{% endif %}>{{ label }}</option>{% endfor %}
-                </select>
-                {% if row.note %}<p class="error">Nobody is eligible: {{ row.note }}.</p>{% endif %}
-                {% if row.error %}<p class="error">{{ row.error }}</p>{% endif %}
-                {% for warning in row.warnings %}<p class="muted">⚠ {{ warning }}</p>{% endfor %}
-              </td>
-              <td>{% if row.due %}{{ row.due|date:"d M, H:i" }}{% else %}<span class="muted">—</span>{% endif %}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    {% for group in groups %}
+      {% if group.title %}
+        <h2 class="h2">{{ group.title }}</h2>
+        {% if group.detail %}<p class="muted">{{ group.detail }}</p>{% endif %}
+      {% endif %}
+      <div style="overflow-x:auto">
+        <table class="roster">
+          <thead><tr><th>Task</th><th>Who</th><th>Due</th></tr></thead>
+          <tbody>{% for row in group.rows %}{% include "ui/_allocate_row.html" with row=row %}{% endfor %}</tbody>
+        </table>
+      </div>
+    {% endfor %}
+
+    <h2 class="h2">Additional tasks</h2>
+    <p class="muted">Need more people? Press <strong>+</strong> to add another task{% if extra_subs %}, for the whole event or for one sub-event{% endif %}.
+      An extra photographer or videographer brings their own editing.</p>
+    <div id="extra-rows" class="stack">
+      {% for row in extra_rows %}{% include "ui/_allocate_extra.html" with row=row i=forloop.counter0 %}{% endfor %}
     </div>
+    <input type="hidden" name="extra-TOTAL" id="extra-total" value="{{ extra_rows|length }}" />
+    <template id="extra-template">{% include "ui/_allocate_extra.html" with row=blank_extra i="__prefix__" %}</template>
+    <div class="row"><button type="button" id="add-extra" class="btn btn--sm">+ Add a task</button></div>
 
     <p class="muted">Saving accepts the request straight away and emails <strong>{{ on_behalf.name }}</strong> ({{ on_behalf.email }}) the
       confirmation with the team copied in, and each person above their assignment. Everyone listed is checked again when you save.
@@ -53,4 +54,26 @@
     </div>
   </form>
 </section>
+
+<script>
+  // "+ Add a task": clone the blank row, numbering it after the last one. "Remove"
+  // clears the row and hides it, so numbers stay consecutive and it is skipped on save.
+  (function () {
+    var rows = document.getElementById("extra-rows");
+    var total = document.getElementById("extra-total");
+    var template = document.getElementById("extra-template");
+    document.getElementById("add-extra").addEventListener("click", function () {
+      var n = parseInt(total.value, 10);
+      rows.insertAdjacentHTML("beforeend", template.innerHTML.replace(/__prefix__/g, n));
+      total.value = n + 1;
+    });
+    rows.addEventListener("click", function (event) {
+      var button = event.target.closest(".js-remove-extra");
+      if (!button) return;
+      var row = button.closest(".js-extra-row");
+      row.querySelectorAll("select").forEach(function (field) { field.value = ""; });
+      row.hidden = true;
+    });
+  })();
+</script>
 {% endblock %}

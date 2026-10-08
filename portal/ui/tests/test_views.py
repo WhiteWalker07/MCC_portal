@@ -187,10 +187,12 @@ class PortalViewTests(TestCase):
         response = self.client.get(reverse("home"))
         self.assertContains(response, "Continue with Google")
 
-    def test_home_redirects_when_authenticated(self):
+    def test_home_is_the_landing_page_when_authenticated(self):
         self.client.force_login(self.plain_user)
         response = self.client.get(reverse("home"))
-        self.assertRedirects(response, reverse("request-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hello,")
+        self.assertNotContains(response, "Continue with Google")
 
     # ── requests ─────────────────────────────────────────────────────────────
 

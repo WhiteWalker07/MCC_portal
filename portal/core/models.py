@@ -541,13 +541,28 @@ class Task(models.Model):
         help_text="On an editing task: the shooter task whose work it edits. "
         "The editor follows the shooter when the shooter is reassigned.",
     )
+    sub_event = models.ForeignKey(
+        "SubEvent",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tasks",
+        help_text="Set when this task covers one sub-event of a multi-day event (its own "
+        "photographer/videographer and their editing). Its event times, venue and "
+        "deadline are that sub-event's, not the whole event's.",
+    )
 
     class Meta:
         ordering = ["deadline", "task"]
         indexes = [models.Index(fields=["status", "deadline"])]
 
     def __str__(self) -> str:
-        return f"{self.ref_code} {self.task} → {self.email or 'UNFILLED'}"
+        return f"{self.ref_code} {self.label} → {self.email or 'UNFILLED'}"
+
+    @property
+    def label(self) -> str:
+        """The task as people should read it: 'Photographer', or 'Photographer — Inauguration'."""
+        return task_label(self.task, self.sub_event.name if self.sub_event_id else "")
 
     @property
     def is_completable(self) -> bool:
@@ -561,6 +576,15 @@ class Task(models.Model):
         covered an event that hasn't happened (docs/PRD.md §5.4).
         """
         return bool(self.event_start and self.event_start > timezone.now())
+
+
+def task_label(task_name: str, sub_event_name: str = "") -> str:
+    """
+    How a task reads to people, saved or not: its name, plus the name of the
+    sub-event it covers, if any. Also the role recorded in a request's roster, so
+    roster entries can be matched back to tasks by it.
+    """
+    return f"{task_name} — {sub_event_name}" if sub_event_name else task_name
 
 
 class Meeting(models.Model):

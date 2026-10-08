@@ -43,7 +43,7 @@ from core.constants import (
     TASK_VETTER,
     TaskStatus,
 )
-from core.models import Task, TeamMember
+from core.models import Task, TeamMember, task_label
 from services import email as email_service
 from services.calendar import calendar_service
 
@@ -51,8 +51,8 @@ from . import leave as leave_sweep
 from .assign import Choice, choose_member, choose_supervisor
 from .confirm import confirm_request
 from .notify import award_points
-from .pipeline import PipelineTask, build_pipeline
-from .points import final_points, overdue_multiplier
+from .pipeline import PipelineTask, build_pipeline, compute_deadline, ordered_sub_events
+from .points import base_points_for, final_points, overdue_multiplier
 from .posting import find_next_slot
 from .refcode import allocate_ref_code
 
@@ -104,21 +104,23 @@ def staff_pipeline(
     serves both the real thing (`process_new_request`) and the preview a POC/Admin
     sees before saving a request they are entering for a club (`propose_team`).
 
-    `preferred` maps a task name to a person chosen by hand; the caller has already
-    checked they are allowed. Everything not in it is picked by the engine as usual.
-    A hand-picked person counts as already on the request, so the automatic picks
-    steer around them. An editing task with no explicit pick goes to whoever holds
-    its shoot, as ever.
+    `preferred` maps a task's `ident` (its name, or name plus a sub-event/extra
+    suffix) to a person chosen by hand; the caller has already checked they are
+    allowed. Everything not in it is picked by the engine as usual. A hand-picked
+    person counts as already on the request, so the automatic picks steer around
+    them. An editing task with no explicit pick goes to whoever holds its shoot.
     """
     preferred = preferred or {}
-    already_assigned: set[str] = {m.email for task, m in preferred.items() if task != TASK_SUPERVISOR}
+    already_assigned: set[str] = {
+        m.email for ident, m in preferred.items() if not ident.startswith(TASK_SUPERVISOR)
+    }
     open_counts = open_supervision_counts()
-    # Who got each shoot role, so its editing task can go to the same person.
+    # Who got each shoot task, so its editing task can go to the same person.
     shooter_member: dict[str, TeamMember] = {}
     staffed: list[Staffed] = []
 
     for pipeline_task in pipeline:
-        picked = preferred.get(pipeline_task.task)
+        picked = preferred.get(pipeline_task.ident)
         paired = shooter_member.get(pipeline_task.pairs_with) if pipeline_task.pairs_with else None
         if picked is not None:
             choice = Choice(member=picked, reason="")
@@ -135,27 +137,102 @@ def staff_pipeline(
             )
         member = choice.member
         if member is not None and pipeline_task.task in DERIVED_EDITOR:
-            shooter_member[pipeline_task.task] = member
+            shooter_member[pipeline_task.ident] = member
         if member is not None and pipeline_task.task != TASK_SUPERVISOR:
             already_assigned.add(member.email)
         staffed.append(Staffed(pipeline_task, member, choice.reason, chosen=picked is not None))
     return staffed
 
 
-def propose_team(request_obj, preferred: dict[str, TeamMember] | None = None) -> list[Staffed]:
+def propose_team(
+    request_obj, preferred: dict[str, TeamMember] | None = None, *, sub_events=None, extras=None
+) -> list[Staffed]:
     """
     The team the engine would pick for an unsaved request, with any hand picks
     applied. Nothing is saved and nobody is emailed. `request_obj` only needs its
     form fields and `campus` (normally filled in when the reference code is
     allocated, so the caller sets it from the club).
     """
-    pipeline = build_pipeline(request_obj, get_task_types(), timezone.now(), get_points_scheme())
+    pipeline = build_pipeline(
+        request_obj, get_task_types(), timezone.now(), get_points_scheme(),
+        sub_events=ordered_sub_events(sub_events or []), extras=extras,
+    )
     return staff_pipeline(
         request_obj, pipeline, get_settings(), get_team(), calendar_service(), preferred
     )
 
 
-def process_new_request(request_obj, *, skip_approval: bool = False, preferred=None) -> None:
+def _save_task(request_obj, member, *, sub, task_name, required_skill, at_event, vertical, **fields):
+    """
+    The one place a `Task` row is built for a request. A task that covers a
+    sub-event takes that sub-event's own times and venue; everything else takes the
+    whole event's. `fields` carries what differs between callers (points, deadline,
+    status, reason, coordinator, pairing...).
+    """
+    return Task.objects.create(
+        request=request_obj,
+        req_type=request_obj.type,
+        task=task_name,
+        required_skill=required_skill,
+        at_event=at_event,
+        vertical=vertical or "",
+        member=member.name if member else "",
+        email=member.email if member else "",
+        phone=(member.phone or "") if member else "",
+        event_name=request_obj.event_name or "",
+        event_start=sub.start if sub else request_obj.event_start,
+        event_end=sub.end if sub else request_obj.event_end,
+        venue=(sub.venue if sub else request_obj.venue) or "",
+        sub_event=sub,
+        **fields,
+    )
+
+
+def create_task_row(request_obj, pipeline_task, member, reason, *, ref_code, coordinator_email, now, paired=None):
+    """Save one staffed pipeline task as a `Task`."""
+    # A sub-event not saved yet (a preview) can't be linked; saving always has one.
+    sub = pipeline_task.sub_event if getattr(pipeline_task.sub_event, "pk", None) else None
+    return _save_task(
+        request_obj, member, sub=sub,
+        task_name=pipeline_task.task, required_skill=pipeline_task.required_skill,
+        at_event=pipeline_task.at_event, vertical=pipeline_task.vertical,
+        ref_code=ref_code,
+        points=pipeline_task.points,
+        deadline=pipeline_task.deadline,
+        status=TaskStatus.PROPOSED if member else TaskStatus.UNFILLED,
+        reason="" if member else reason,
+        coordinator_email=coordinator_email,
+        paired_task=paired,
+        created_at=now,
+    )
+
+
+def add_task_from_type(
+    request_obj, task_type, member, *, sub=None, status, coordinator_email="", paired=None, now=None
+):
+    """
+    Save one more task of `task_type` for `member` on an existing request (the
+    coordinator or POC adding someone). A task for a sub-event takes that
+    sub-event's own times, venue and deadline.
+    """
+    now = now or timezone.now()
+    return _save_task(
+        request_obj, member, sub=sub,
+        task_name=task_type.task, required_skill=task_type.required_skill,
+        at_event=task_type.at_event, vertical=task_type.vertical,
+        ref_code=request_obj.ref_code or "",
+        # The same scheme automatic assignment uses (coordinator 20, supervisor 0,
+        # everything else the domain-task base), not the per-type legacy number.
+        points=base_points_for(task_type.task, get_points_scheme()),
+        deadline=compute_deadline(task_type, request_obj, now, window_end=sub.end if sub else None),
+        status=status,
+        coordinator_email=coordinator_email or request_obj.coordinator_email or "",
+        paired_task=paired,
+        created_at=now,
+    )
+
+
+def process_new_request(request_obj, *, skip_approval: bool = False, preferred=None, extras=None) -> None:
     """
     Take a freshly submitted request from 'New' to either 'Pending for POC
     approval' or 'Request Accepted'.
@@ -164,7 +241,11 @@ def process_new_request(request_obj, *, skip_approval: bool = False, preferred=N
     applies the approval gate. `skip_approval` is for a request the POC/Admin
     entered on a club's behalf: they are the approver, so it is accepted straight
     away (short-notice Coverage and Posts included). `preferred` is the team they
-    chose by hand for that request (task name -> TeamMember), already validated.
+    chose by hand for that request (task ident -> TeamMember), already validated,
+    and `extras` the additional tasks they asked for ([(task name, sub-event index)]).
+
+    A multi-day event with sub-events gets its own photographer/videographer (and
+    their editing) for each sub-event, so the sub-events must already be saved.
     """
     allocation = allocate_ref_code(request_obj)
     if not allocation.ok:
@@ -179,58 +260,36 @@ def process_new_request(request_obj, *, skip_approval: bool = False, preferred=N
     calendar = calendar_service()
 
     now = timezone.now()
-    pipeline = build_pipeline(request_obj, task_types, now, scheme)
+    pipeline = build_pipeline(
+        request_obj, task_types, now, scheme,
+        sub_events=ordered_sub_events(request_obj.sub_events.all()), extras=extras,
+    )
+    staffed_list = staff_pipeline(request_obj, pipeline, settings, team, calendar, preferred)
 
-    coordinator_email = ""
-    supervisor_email = ""
-    tasks_to_create: list[Task] = []
-    outcomes: list[tuple[str, TeamMember | None, str]] = []
-    chosen_by_hand: set[str] = set()
+    coordinator_email = next(
+        (s.member.email for s in staffed_list if s.member and s.pipeline_task.task == TASK_EVENT_COORDINATOR), ""
+    )
+    supervisor_email = next(
+        (s.member.email for s in staffed_list if s.member and s.pipeline_task.task == TASK_SUPERVISOR), ""
+    )
 
-    for staffed in staff_pipeline(request_obj, pipeline, settings, team, calendar, preferred):
-        pipeline_task, member, reason = staffed.pipeline_task, staffed.member, staffed.reason
-        choice = Choice(member=member, reason=reason)
-        if member is not None:
-            if pipeline_task.task == TASK_SUPERVISOR:
-                supervisor_email = member.email
-            if pipeline_task.task == TASK_EVENT_COORDINATOR:
-                coordinator_email = member.email
-
-        tasks_to_create.append(
-            Task(
-                request=request_obj,
-                req_type=request_obj.type,
-                ref_code=allocation.ref_code,
-                task=pipeline_task.task,
-                required_skill=pipeline_task.required_skill,
-                at_event=pipeline_task.at_event,
-                vertical=pipeline_task.vertical,
-                member=member.name if member else "",
-                email=member.email if member else "",
-                phone=(member.phone or "") if member else "",
-                points=pipeline_task.points,
-                deadline=pipeline_task.deadline,
-                status=TaskStatus.PROPOSED if member else TaskStatus.UNFILLED,
-                reason="" if member else choice.reason,
-                event_name=request_obj.event_name or "",
-                event_start=request_obj.event_start,
-                event_end=request_obj.event_end,
-                venue=request_obj.venue or "",
-                created_at=now,
-            )
-        )
-        outcomes.append((pipeline_task.task, member, choice.reason))
-        if staffed.chosen:
-            chosen_by_hand.add(pipeline_task.task)
-
+    # (label, member, reason, chosen by hand)
+    outcomes: list[tuple[str, TeamMember | None, str, bool]] = []
     with transaction.atomic():
-        # coordinator_email is only known after the whole pipeline is staffed,
-        # so it's stamped onto every task and the request in one pass.
-        for task in tasks_to_create:
-            task.coordinator_email = coordinator_email
-        if tasks_to_create:
-            Task.objects.bulk_create(tasks_to_create)
-            _link_paired_editors(request_obj)
+        created: dict[str, Task] = {}
+        for staffed in staffed_list:
+            pipeline_task = staffed.pipeline_task
+            created[pipeline_task.ident] = create_task_row(
+                request_obj, pipeline_task, staffed.member, staffed.reason,
+                ref_code=allocation.ref_code, coordinator_email=coordinator_email, now=now,
+                paired=created.get(pipeline_task.pairs_with) if pipeline_task.pairs_with else None,
+            )
+            outcomes.append(
+                (
+                    task_label(pipeline_task.task, pipeline_task.sub_event.name if pipeline_task.sub_event else ""),
+                    staffed.member, staffed.reason, staffed.chosen,
+                )
+            )
         request_obj.coordinator_email = coordinator_email
         request_obj.supervisor_email = supervisor_email
         request_obj.save(update_fields=["coordinator_email", "supervisor_email"])
@@ -243,18 +302,17 @@ def process_new_request(request_obj, *, skip_approval: bool = False, preferred=N
         detail=f"{request_obj.type} request created"
         + (f" on behalf of {request_obj.contact_email}" if request_obj.created_on_behalf_by else ""),
     )
-    for task_name, member, reason in outcomes:
-        chosen = task_name in chosen_by_hand
+    for label, member, reason, chosen in outcomes:
         log_activity(
             "proposed" if member else "unfilled",
             request_obj=request_obj,
             ref_code=allocation.ref_code,
             member=member.email if member else "",
             detail=(
-                f"{task_name} -> {member.name}"
+                f"{label} -> {member.name}"
                 + (f" (chosen by {request_obj.created_on_behalf_by})" if chosen else "")
                 if member
-                else f"{task_name} UNFILLED: {reason}"
+                else f"{label} UNFILLED: {reason}"
             ),
         )
 
@@ -264,7 +322,7 @@ def process_new_request(request_obj, *, skip_approval: bool = False, preferred=N
         email_service.send(
             settings.secretary_emails,
             f"[Approval needed] {allocation.ref_code} — {request_obj.event_name}",
-            _approval_email(request_obj, allocation.ref_code, outcomes),
+            _approval_email(request_obj, allocation.ref_code, [(l, m, r) for l, m, r, _ in outcomes]),
         )
         log_activity(
             "pending",
@@ -275,20 +333,6 @@ def process_new_request(request_obj, *, skip_approval: bool = False, preferred=N
         return
 
     confirm_request(request_obj)
-
-
-def _link_paired_editors(request_obj) -> None:
-    """
-    Point each editing task at the shooter task it edits, so the editor follows
-    the shooter when the shooter is reassigned. Read back from the database
-    rather than relying on `bulk_create` to hand primary keys back.
-    """
-    by_name = {t.task: t for t in request_obj.tasks.all()}
-    for shooter_name, editor_name in DERIVED_EDITOR.items():
-        shooter, editor = by_name.get(shooter_name), by_name.get(editor_name)
-        if shooter and editor and editor.paired_task_id != shooter.pk:
-            editor.paired_task = shooter
-            editor.save(update_fields=["paired_task"])
 
 
 def _requires_approval(request_obj, settings) -> bool:
@@ -379,6 +423,35 @@ def reject_request(request_obj, reason: str, by: str) -> bool:
 # ── onTaskCompleted ──────────────────────────────────────────────────────────
 
 
+def advance_if_covered(request_obj) -> None:
+    """
+    Move an accepted Coverage request to Event Covered once every deliverable is
+    done. Run when a task finishes, and when tasks are taken off the request (the
+    one removed may have been the last thing it was waiting for).
+    """
+    if request_obj.type != RequestType.COVERAGE or request_obj.status != RequestStatus.ACCEPTED:
+        return
+    # Neither the coordinator nor the supervisor is a deliverable.
+    deliverables = [
+        t
+        for t in request_obj.tasks.all()
+        if t.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR) and t.status != TaskStatus.UNFILLED
+    ]
+    if not deliverables or not all(t.status == TaskStatus.DONE for t in deliverables):
+        return
+    # Claimed atomically: the last two deliverables finishing at once would
+    # otherwise both advance it (and both log it).
+    if not _advance(request_obj, RequestStatus.ACCEPTED, RequestStatus.EVENT_COVERED):
+        return
+    log_activity(
+        "event-covered",
+        request_obj=request_obj,
+        ref_code=request_obj.ref_code,
+        actor="engine",
+        detail="All coverage deliverables done",
+    )
+
+
 def complete_task(task) -> None:
     """
     Apply the consequences of a task reaching DONE: credit its points, then
@@ -416,29 +489,11 @@ def complete_task(task) -> None:
     if request_obj.status != RequestStatus.ACCEPTED:
         return
 
-    tasks = list(request_obj.tasks.all())
-
     if task.req_type == RequestType.COVERAGE:
-        # Neither the coordinator nor the supervisor is a deliverable.
-        deliverables = [
-            t
-            for t in tasks
-            if t.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)
-            and t.status != TaskStatus.UNFILLED
-        ]
-        if deliverables and all(t.status == TaskStatus.DONE for t in deliverables):
-            # Claimed atomically: the last two deliverables finishing at once
-            # would otherwise both advance it (and both log it).
-            if not _advance(request_obj, RequestStatus.ACCEPTED, RequestStatus.EVENT_COVERED):
-                return
-            log_activity(
-                "event-covered",
-                request_obj=request_obj,
-                ref_code=task.ref_code,
-                actor="engine",
-                detail="All coverage deliverables done",
-            )
+        advance_if_covered(request_obj)
         return
+
+    tasks = list(request_obj.tasks.all())
 
     # A Post is ready once its makers are done.
     #

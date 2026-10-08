@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Home — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <div class="view-head">
+    <h1>Hello, {{ user.get_full_name|default:user.email }}</h1>
+    <a class="btn btn--primary" href="{% url 'request-new' %}">New request</a>
+  </div>
+  {% if role_badges %}
+    <div class="badges">{% for badge in role_badges %}<span class="badge">{{ badge }}</span>{% endfor %}</div>
+  {% endif %}
+  {% if member %}
+    <p class="muted">
+      <span class="chip-pts">{{ member.points }} pts</span>
+      · {{ member.yellow_strikes }} yellow · {{ member.red_strikes }} red
+      {% if is_out %}· <strong>You're marked out of work</strong> (<a href="{% url 'profile' %}">Profile</a>)
+      {% elif pending_leave %}· Out-of-work request waiting for the POC (<a href="{% url 'profile' %}">Profile</a>)
+      {% endif %}
+    </p>
+  {% endif %}
+</section>
+
+{% if is_staff %}
+<section class="card stack">
+  <h2 class="h2">Needs attention</h2>
+  <div class="stat-grid">
+    <a class="stat" href="{% url 'approval-list' %}"><span class="stat__value">{{ pending_requests }}</span><span class="stat__label">Requests to approve</span></a>
+    <a class="stat" href="{% url 'approval-list' %}"><span class="stat__value">{{ pending_leaves }}</span><span class="stat__label">Out-of-work requests</span></a>
+    <a class="stat" href="{% url 'assignment-list' %}"><span class="stat__value">{{ late_tasks }}</span><span class="stat__label">Overdue tasks</span></a>
+    <a class="stat" href="{% url 'assignment-list' %}"><span class="stat__value">{{ unfilled_tasks }}</span><span class="stat__label">Roles nobody could take</span></a>
+  </div>
+  <h3 class="h2">Events in the next {{ upcoming_days }} days</h3>
+  {% if upcoming_events %}
+    <ul class="list">
+      {% for r in upcoming_events %}
+        <li class="list__item">
+          <a class="list__link" href="{% url 'assignment-detail' r.pk %}">
+            <span class="list__main">
+              <span class="list__title">{{ r.event_name|default:"(untitled)" }}</span>
+              <span class="list__sub">{{ r.ref_code }} · {% if r.is_multiday %}{{ r.event_start|date:"D d M" }} – {{ r.event_end|date:"D d M" }}{% else %}{{ r.event_start|date:"D d M, H:i" }}{% endif %}</span>
+            </span>
+            <span class="status" data-status="{{ r.status }}">{{ r.status }}</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Nothing is scheduled in the next {{ upcoming_days }} days.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if member %}
+<section class="card stack">
+  <div class="view-head">
+    <h2 class="h2">My tasks</h2>
+    <a class="btn btn--sm" href="{% url 'task-list' %}">All my tasks ({{ my_task_count }})</a>
+  </div>
+  {% if my_late_count %}<p class="error">{{ my_late_count }} overdue: finish these first.</p>{% endif %}
+  {% if my_tasks %}
+    <ul class="tcards">
+      {% for t in my_tasks %}
+        <li class="tcard{% if t.status == 'LATE' %} tcard--late{% endif %}">
+          <div class="tcard__main">
+            <div class="tcard__title">{{ t.label }}</div>
+            <div class="tcard__sub">{{ t.ref_code }} · {{ t.event_name }}</div>
+            <div class="tcard__chips">
+              <span class="status" data-status="{{ t.status }}">{{ t.status }}</span>
+              {% if t.deadline %}<span class="chip-due{% if t.status == 'LATE' %} is-late{% endif %}">{% if t.status == 'LATE' %}overdue {% else %}due {% endif %}{{ t.deadline|timeuntil }}</span>{% endif %}
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">Nothing open. You're all caught up.</p>
+  {% endif %}
+
+  <h3 class="h2">Upcoming meetings</h3>
+  {% if my_meetings %}
+    <ul class="list">
+      {% for m in my_meetings %}
+        <li class="list__item">
+          <a class="list__link" href="{% url 'meeting-detail' m.pk %}">
+            <span class="list__main">
+              <span class="list__title">{{ m.title }}</span>
+              <span class="list__sub">{{ m.start|date:"D d M, H:i" }}{% if m.venue %} · {{ m.venue }}{% endif %}</span>
+            </span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No meetings coming up.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if coordinating or supervising or unfilled_in_vertical %}
+<section class="card stack">
+  <h2 class="h2">Events you look after</h2>
+  {% if unfilled_in_vertical %}
+    <p class="note">{{ unfilled_in_vertical }} role(s) in your vertical have nobody assigned. <a href="{% url 'assignment-list' %}">Open Assignments</a></p>
+  {% endif %}
+  <ul class="list">
+    {% for r in coordinating %}
+      <li class="list__item"><a class="list__link" href="{% url 'assignment-detail' r.pk %}">
+        <span class="list__main"><span class="list__title">{{ r.event_name }}</span><span class="list__sub">{{ r.ref_code }} · you coordinate</span></span>
+        <span class="status" data-status="{{ r.status }}">{{ r.status }}</span></a></li>
+    {% endfor %}
+    {% for r in supervising %}
+      <li class="list__item"><a class="list__link" href="{% url 'request-detail' r.pk %}">
+        <span class="list__main"><span class="list__title">{{ r.event_name }}</span><span class="list__sub">{{ r.ref_code }} · you supervise</span></span>
+        <span class="status" data-status="{{ r.status }}">{{ r.status }}</span></a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="card stack">
+  <div class="view-head">
+    <h2 class="h2">My requests</h2>
+    <a class="btn btn--sm" href="{% url 'request-list' %}">All my requests</a>
+  </div>
+  {% if my_requests %}
+    <ul class="list">
+      {% for r in my_requests %}
+        <li class="list__item">
+          <a class="list__link" href="{% url 'request-detail' r.pk %}">
+            <span class="list__main">
+              <span class="list__title">{{ r.event_name|default:"(untitled)" }}</span>
+              <span class="list__sub">{{ r.ref_code|default:"ID pending" }} · {{ r.type }}</span>
+            </span>
+            <span class="status" data-status="{{ r.status }}">{{ r.status }}</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">You haven't raised a request yet. <a href="{% url 'request-new' %}">Raise one</a>.</p>
+  {% endif %}
+</section>
+{% endblock %}

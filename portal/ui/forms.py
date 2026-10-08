@@ -469,14 +469,21 @@ class AddTaskForm(forms.Form):
     member_email = forms.ChoiceField(
         label="Assign to", required=False, widget=forms.Select(attrs={"class": "input"})
     )
+    # Only offered when the request has sub-events: which part of the event this task
+    # is for. Blank means the whole event.
+    sub_event = forms.ChoiceField(
+        label="For", required=False, widget=forms.Select(attrs={"class": "input"})
+    )
 
-    def __init__(self, *args, task_type: str, eligible=(), **kwargs):
+    def __init__(self, *args, task_type: str, eligible=(), sub_events=(), **kwargs):
         kwargs.setdefault("initial", {})["task_type"] = task_type
         super().__init__(*args, **kwargs)
         self.fields["member_email"].choices = [("", "Auto-pick best available")] + [
             (m.email, f"{m.name}" + (f" · {m.vertical_label}" if m.vertical_label else ""))
             for m in eligible
         ]
+        self.fields["sub_event"].choices = [("", "The whole event")] + [(str(s.pk), s.name) for s in sub_events]
+        self.has_sub_events = bool(sub_events)
 
     @property
     def mode(self) -> str:

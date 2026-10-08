@@ -159,14 +159,16 @@ def _commit_confirmation(request_obj):
     roster: list[dict] = []
     newly_confirmed = []
 
-    for task in request_obj.tasks.select_for_update():
+    # Sub-events in one extra query (their names go into the roster labels), not one
+    # per task; prefetched rather than joined, which a FOR UPDATE can't take.
+    for task in request_obj.tasks.select_for_update().prefetch_related("sub_event"):
         if task.status == TaskStatus.UNFILLED or not task.email:
             continue
 
         if task.task in ROSTER_ROLES:
             roster.append(
                 {
-                    "role": task.task,
+                    "role": task.label,  # "Photographer — Inauguration" for a sub-event's own
                     "name": task.member,
                     "email": task.email,
                     "phone": task.phone or "",

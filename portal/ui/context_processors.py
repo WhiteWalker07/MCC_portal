@@ -27,6 +27,8 @@ class NavItem:
 NAV_ITEMS: list[NavItem] = [
     # Any signed-in institute account can raise a Post request; Coverage is
     # restricted to committees, enforced in the form and the view.
+    # The landing page: where signing in lands you.
+    NavItem("home", "Home", "Home", "home", lambda r: True),
     NavItem("new", "New Request", "New", "request-new", lambda r: True),
     NavItem("requests", "My Requests", "Requests", "request-list", lambda r: True),
     NavItem("tasks", "My Tasks", "Tasks", "task-list", lambda r: r.is_team),

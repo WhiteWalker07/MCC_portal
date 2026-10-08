@@ -58,41 +58,131 @@ class PipelineTask:
     at_event: bool
     vertical: str
     deadline: datetime | None
-    #: For an editing task: the shoot role whose work it edits ("Photographer").
-    #: The editor is given to whoever holds that shooter task.
+    #: For an editing task: the `ident` of the shoot task whose work it edits. The
+    #: editor is given to whoever holds that shooter task.
     pairs_with: str = ""
+    #: Unique name for this task within its request. For the ordinary one-of-each
+    #: tasks it is just the task name ("Photographer"); a task covering one
+    #: sub-event, or an extra one, adds a suffix ("Photographer@s1", "Photographer+1").
+    #: Hand picks on the team page are addressed by it. Left blank it means `task`.
+    key: str = ""
+    #: The sub-event this task covers (saved or not yet saved), if it is one of a
+    #: multi-day event's per-sub-event tasks.
+    sub_event: object | None = None
+    #: (start, end) the person must be free for / the task is about, when that is a
+    #: sub-event's own time instead of the whole event's.
+    window: tuple | None = None
+
+    @property
+    def ident(self) -> str:
+        return self.key or self.task
 
 
-def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[PipelineTask]:
+def ordered_sub_events(sub_events) -> list:
+    """
+    A stable order for a request's sub-events, used to number them (`@s0`, `@s1`...).
+    The same order is used when previewing the team (sub-events not saved yet) and
+    when saving, so a person picked for "the second sub-event" stays the second one.
+    """
+    return sorted(
+        sub_events,
+        key=lambda s: (s.start, s.end, (s.name or "").lower(), s.venue or "", s.notes or ""),
+    )
+
+
+def task_key(name: str, sub_index: int | None = None, extra_n: int = 0) -> str:
+    key = name
+    if extra_n:
+        key += f"+{extra_n}"
+    if sub_index is not None:
+        key += f"@s{sub_index}"
+    return key
+
+
+def number_extras(extras) -> list[tuple[str, int | None, int]]:
+    """
+    Number extra tasks so each gets a unique, repeatable key: [(task, sub_index)]
+    becomes [(task, sub_index, n)] where n counts that (task, sub-event) pair from 1.
+    """
+    seen: dict[tuple, int] = {}
+    out = []
+    for name, sub_index in extras:
+        seen[(name, sub_index)] = seen.get((name, sub_index), 0) + 1
+        out.append((name, sub_index, seen[(name, sub_index)]))
+    return out
+
+
+def build_pipeline(
+    request_obj, task_types, now: datetime, scheme, *, sub_events=None, extras=None
+) -> list[PipelineTask]:
+    """
+    The tasks a request needs.
+
+    `sub_events` (any sub-events, ordered by `ordered_sub_events`) matter only for a
+    multi-day Coverage event: then each shoot role ticked (Photographer, Videographer)
+    is created once per sub-event, with its own editing task, each on that
+    sub-event's own times. A multi-day event with no sub-events, and every
+    single-day event, keep one of each, covering the whole event.
+
+    `extras` is a list of `(task name, sub-event index or None)` for additional tasks
+    a person asked for on top (for example a second photographer).
+    """
     by_name = {t.task: t for t in task_types}
-    names: list[str] = []
+    editor_of = {editor: shooter for shooter, editor in DERIVED_EDITOR.items()}
+    coverage = request_obj.type == RequestType.COVERAGE
+    subs = list(sub_events or []) if (coverage and request_obj.is_multiday) else []
 
-    if request_obj.type == RequestType.COVERAGE:
-        roles = list(request_obj.roles_needed or [])
+    # Each entry is (task name, sub-event index or None, extra number, pairs_with key).
+    entries: list[tuple[str, int | None, int, str]] = []
+
+    if coverage:
+        roles = []
+        for role in request_obj.roles_needed or []:
+            if role in by_name and role not in roles:
+                roles.append(role)
+        per_sub = bool(subs) and any(r in DERIVED_EDITOR for r in roles)
         for role in roles:
-            if role in by_name and role not in names:
-                names.append(role)
+            if per_sub and role in DERIVED_EDITOR:
+                entries.extend((role, i, 0, "") for i in range(len(subs)))
+            else:
+                entries.append((role, None, 0, ""))
         # Editors are derived in a second pass so they always follow the shoot
         # roles they come from, whatever order the requester ticked them.
         for role in roles:
             derived = DERIVED_EDITOR.get(role)
-            if derived and derived in by_name and derived not in names:
-                names.append(derived)
-        names.append(TASK_EVENT_COORDINATOR)
-        names.append(TASK_SUPERVISOR)
+            if not derived or derived not in by_name or any(e[0] == derived for e in entries):
+                continue
+            if per_sub:
+                entries.extend((derived, i, 0, task_key(role, i)) for i in range(len(subs)))
+            else:
+                entries.append((derived, None, 0, task_key(role)))
     else:
-        names.append(TASK_CONTENT_WRITER)
-        names.append(TASK_GRAPHIC_DESIGNER)
+        entries.append((TASK_CONTENT_WRITER, None, 0, ""))
+        entries.append((TASK_GRAPHIC_DESIGNER, None, 0, ""))
 
-    editor_of = {editor: shooter for shooter, editor in DERIVED_EDITOR.items()}
+    # Additional tasks asked for by hand; an extra shooter brings their own editing.
+    for name, sub_index, n in number_extras(extras or []):
+        if name not in by_name or name in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR):
+            continue
+        if sub_index is not None and not (0 <= sub_index < len(subs)):
+            sub_index = None
+        entries.append((name, sub_index, n, ""))
+        editor = DERIVED_EDITOR.get(name)
+        if editor and editor in by_name:
+            entries.append((editor, sub_index, n, task_key(name, sub_index, n)))
+
+    if coverage:
+        entries.append((TASK_EVENT_COORDINATOR, None, 0, ""))
+        entries.append((TASK_SUPERVISOR, None, 0, ""))
 
     pipeline: list[PipelineTask] = []
-    for name in names:
+    for name, sub_index, n, pairs_with in entries:
         task_type = by_name.get(name)
         if task_type is None:
             # Config is missing this task type — skip rather than fail the whole
             # request. The missing role simply won't be staffed.
             continue
+        sub = subs[sub_index] if sub_index is not None else None
         pipeline.append(
             PipelineTask(
                 task=task_type.task,
@@ -101,8 +191,11 @@ def build_pipeline(request_obj, task_types, now: datetime, scheme) -> list[Pipel
                 sla_hours=task_type.sla_hours,
                 at_event=task_type.at_event,
                 vertical=task_type.vertical or "",
-                deadline=compute_deadline(task_type, request_obj, now),
-                pairs_with=editor_of.get(task_type.task, ""),
+                deadline=compute_deadline(task_type, request_obj, now, window_end=sub.end if sub else None),
+                pairs_with=pairs_with,
+                key=task_key(name, sub_index, n),
+                sub_event=sub,
+                window=(sub.start, sub.end) if sub else None,
             )
         )
 
@@ -158,8 +251,17 @@ def refresh_coordinator_deadline(request_obj) -> None:
             task.save(update_fields=fields)
 
 
-def compute_deadline(task_type, request_obj, now: datetime) -> datetime | None:
-    """When a task of this type, on this request, is due. `None` = no deadline."""
+def compute_deadline(task_type, request_obj, now: datetime, *, window_end=None) -> datetime | None:
+    """
+    When a task of this type, on this request, is due. `None` = no deadline.
+
+    `window_end` is the end of the sub-event a task covers; its deadline counts from
+    there instead of from the end of the whole event.
+    """
+    if window_end is not None and task_type.task not in (TASK_SUPERVISOR, TASK_EVENT_COORDINATOR):
+        if task_type.at_event and task_type.sla_hours == 0:
+            return window_end
+        return window_end + timedelta(hours=task_type.sla_hours)
     if task_type.task == TASK_SUPERVISOR:
         return None  # supervising has no due date; it closes with the Event Coordinator
     if task_type.task == TASK_EVENT_COORDINATOR:

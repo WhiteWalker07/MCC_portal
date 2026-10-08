@@ -16,6 +16,14 @@ first time; it won't ask again on that device.
 
 ## Everyone (any signed-in @iimsirmaur.ac.in account)
 
+**Home** is where signing in lands you. It shows your requests and a **New request**
+button. If you're on the team it also shows your open tasks (overdue ones first),
+your points and strikes, and your upcoming meetings. If you coordinate or supervise
+an event, or head a vertical, those appear too. The **POC and Admin** also see what
+needs attention: requests and out-of-work requests waiting for a decision, overdue
+tasks, roles nobody could take, and the events in the next 7 days. The statistics
+**Dashboard** is a separate page.
+
 You can always:
 - Raise a **Post** request (`New Request` → Post) — a request to have
   something published to the institute's social channels. **Every Post is
@@ -48,11 +56,23 @@ Everything above, plus:
   its dates**. The team covers all of them — they are information for the team,
   not extra requests. A single-day event has none when you raise it, but you
   can add some later.
+- **Every sub-event of a multi-day event gets its own photographer and
+  videographer** (whichever you ticked), each with their own editing, so
+  different people can cover different parts of the event. Each is on that
+  sub-event's own time and venue: it gets its own deadline, its own calendar
+  entry, and can't be marked done before that sub-event starts. The event still
+  has one Event Coordinator and one Task Supervisor. Your accepted-request email
+  lists who covers which sub-event. A multi-day event with no sub-events has one
+  photographer/videographer for the whole span, as a single-day event does.
 - **Add, edit or remove sub-events later** from the request page. Each
   sub-event has **its own cutoff: until 48 hours before that sub-event starts**
   (so you can still change Day 3 while Day 1 is under way). Adding one needs its
   own start to be more than 48 hours away, and you can't drag one into the last
-  48 hours. The Event Coordinator and POC are emailed about every change.
+  48 hours. The Event Coordinator and POC are emailed about every change. On a
+  multi-day event a sub-event you add is **staffed automatically** (its own
+  photographer/videographer are picked, confirmed and emailed, and you are told who);
+  changing its time moves its team's deadlines and tells them; deleting it releases
+  them. The POC or the coordinator can change anyone from Assignments.
 - **Edit the venue after submitting** (single-day events), if it changes at the
   last minute — open the request from `My Requests` → **Edit venue**. You don't
   need to contact anyone to fix a last-minute room change. (A multi-day event
@@ -134,7 +154,10 @@ separate email. It's a responsibility only — no points.
   **reassign** any of them — auto-pick a replacement or choose manually —
   and **add** an extra task type that wasn't in the original plan (e.g.
   another **Photographer or Videographer** for a big event; they arrive with
-  their own editing task). The one exception is the
+  their own editing task). On a multi-day event choose whether the new person
+  is for the **whole event or one sub-event**. You can also **remove** a
+  photographer or videographer (and their editing) with the **Remove** button, until
+  their work is done. They are emailed, and the club is told its team changed. The one exception is the
   **Task Supervisor** on your request: you can't change it — only the
   Secretary/POC or Admin can.
 - **You are timed too.** Your deadline is **12 hours after the last deadline of
@@ -210,6 +233,11 @@ Everything above, plus:
   club gets the usual accepted email (with the team copied in), which says it was
   entered on its behalf, and each person gets their assignment. The request page
   shows who entered it.
+  On a **multi-day event** the team page is grouped by sub-event, with its own
+  photographer and videographer to choose for each. **Additional tasks → + Add a
+  task** adds more people on top (any assignable task: a second photographer for one
+  sub-event, an extra writer, and so on; an extra photographer or videographer brings
+  their own editing). Leave the person on "Let the system decide" to have one picked.
 - **Out-of-work requests** (also on `Approvals`, and open to Admin): you're
   emailed when a member asks. Each shows their dates, reason and **open tasks**;
   **Approve** or **Decline** with an optional note (the member is emailed).
