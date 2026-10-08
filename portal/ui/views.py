@@ -75,7 +75,7 @@ from engine.assignment import (
     override_proposed_assignee,
     perform_swap,
     remove_additional_coordinator,
-    remove_shooter,
+    remove_task,
     validate_member,
 )
 from engine.confirm import confirm_request
@@ -253,14 +253,15 @@ def request_new(request):
             new_request.roles_needed = form.cleaned_data.get("roles_needed") or []
             new_request.platforms = form.cleaned_data.get("platforms") or []
 
-            preferred, extra_pairs = None, None
+            preferred, extra_pairs, dropped = None, None, None
             if on_behalf:
                 # Only the club's campus is needed to pick a team; the rest happens
                 # when the request is really saved.
                 new_request.campus = on_behalf.campus or ""
                 draft_subs = allocation.draft_sub_events(subevents) if wants_subevents else []
                 extra_rows, extra_errors = allocation.extras_from_post(request.POST, len(draft_subs))
-                pipeline = allocation.pipeline_for(new_request, draft_subs, extra_rows)
+                dropped = allocation.dropped_from_post(request.POST, new_request, draft_subs, extra_rows)
+                pipeline = allocation.pipeline_for(new_request, draft_subs, extra_rows, dropped)
                 posted = allocation.picks_from_post(request.POST, pipeline, extra_rows)
                 preferred, errors = allocation.validate_picks(new_request, posted, pipeline)
                 if step != "confirm" or errors or extra_errors:
@@ -277,7 +278,7 @@ def request_new(request):
                             "carried": allocation.carried_fields(request.POST),
                             "is_multiday": multiday,
                             **allocation.build_page(
-                                new_request, draft_subs, extra_rows, posted, errors, extra_errors
+                                new_request, draft_subs, extra_rows, posted, errors, extra_errors, dropped
                             ),
                         },
                     )
@@ -296,7 +297,8 @@ def request_new(request):
             # team they chose (anything not chosen is picked by the engine) is
             # applied as the request is staffed.
             process_new_request(
-                new_request, skip_approval=on_behalf is not None, preferred=preferred, extras=extra_pairs
+                new_request, skip_approval=on_behalf is not None, preferred=preferred, extras=extra_pairs,
+                dropped=dropped,
             )
             new_request.refresh_from_db()
 
@@ -884,50 +886,78 @@ def assignment_detail(request, pk):
                 "task": task,
                 "manageable": manageable,
                 "form": form,
-                # Photographers and videographers can be taken off an event (along with
-                # the editing that goes with them) until the work is done.
+                # Any task but the coordinator's and the supervisor's can be taken off a
+                # Coverage event until its work is done (a shooter takes their editing too).
                 "removable": manageable
-                and task.task in DERIVED_EDITOR
+                and request_obj.type == RequestType.COVERAGE
+                and task.task not in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)
                 and task.status != TaskStatus.DONE
                 and request_obj.status not in RequestStatus.TERMINAL,
             }
         )
 
-    # One small add-task form per internal-assignable type not already fully
-    # staffed — each already scoped to that type's own candidate pool, so no
-    # task-type-dependent dropdown (and no JS) is needed (ui/forms.py).
+    # One small add-task form per internal-assignable type not already fully staffed --
+    # each already scoped to that type's own candidate pool, so no task-type-dependent
+    # dropdown (and no JS) is needed (ui/forms.py). Every group of the table below
+    # gets its own copy, fixed to that group's sub-event (or the whole event).
     existing_types = {t.task for t in tasks}
-    add_sub_events = list(request_obj.sub_events.all()) if request_obj.is_multiday else []
-    add_forms = []
-    for task_type in TaskType.objects.filter(internal_assignable=True):
-        # The coordinator and supervisor are one per request (add = reassign / fill);
-        # any other task can be added again, for example a second photographer.
-        one_per_request = task_type.task in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)
-        if task_type.task != "Event Coordinator" and one_per_request and task_type.task in existing_types:
-            continue  # already on this request; reassign it instead of adding again
-        if task_type.task == TASK_SUPERVISOR and request_obj.type != RequestType.COVERAGE:
-            continue  # only Coverage requests have a supervisor
-        if not can_assign(roles, task_type.vertical, request_obj.coordinator_emails, task_type.task):
-            continue
-        eligible = eligible_members(
-            task_type.required_skill,
-            task_type.at_event,
-            request_obj,
-            settings,
-            team,
-            calendar,
-            set(request_obj.coordinator_emails) if task_type.task == TASK_EVENT_COORDINATOR else None,
-            task_name=task_type.task,
-            vertical=task_type.vertical,
+    sub_events = list(request_obj.sub_events.all()) if request_obj.is_multiday else []
+    addable = []
+    if request_obj.status not in RequestStatus.TERMINAL:
+        for task_type in TaskType.objects.filter(internal_assignable=True):
+            # The coordinator and supervisor are one per request (add = reassign / fill);
+            # any other task can be added again, for example a second photographer.
+            one_per_request = task_type.task in (TASK_EVENT_COORDINATOR, TASK_SUPERVISOR)
+            if task_type.task != "Event Coordinator" and one_per_request and task_type.task in existing_types:
+                continue  # already on this request; reassign it instead of adding again
+            if task_type.task == TASK_SUPERVISOR and request_obj.type != RequestType.COVERAGE:
+                continue  # only Coverage requests have a supervisor
+            if not can_assign(roles, task_type.vertical, request_obj.coordinator_emails, task_type.task):
+                continue
+            eligible = eligible_members(
+                task_type.required_skill,
+                task_type.at_event,
+                request_obj,
+                settings,
+                team,
+                calendar,
+                set(request_obj.coordinator_emails) if task_type.task == TASK_EVENT_COORDINATOR else None,
+                task_name=task_type.task,
+                vertical=task_type.vertical,
+            )
+            addable.append((task_type, eligible))
+
+    # The table is grouped by sub-event (in time order), then the whole-event tasks. A
+    # request without sub-events is one untitled group.
+    groups = []
+    for sub in sub_events:
+        local_start, local_end = timezone.localtime(sub.start), timezone.localtime(sub.end)
+        groups.append(
+            {
+                "title": sub.name,
+                "detail": f"{local_start:%a %d %b, %H:%M}–{local_end:%H:%M}" + (f" · {sub.venue}" if sub.venue else ""),
+                "sub_pk": str(sub.pk),
+                "rows": [row for row in task_rows if row["task"].sub_event_id == sub.pk],
+            }
         )
-        add_forms.append(
+    groups.append(
+        {
+            "title": "Whole event" if sub_events else "",
+            "detail": "Covers the whole request" if sub_events else "",
+            "sub_pk": "",
+            "rows": [row for row in task_rows if row["task"].sub_event_id is None],
+        }
+    )
+    for index, group in enumerate(groups):
+        group["add_forms"] = [
             {
                 "task_type": task_type,
                 "form": AddTaskForm(
-                    task_type=task_type.task, eligible=eligible, sub_events=add_sub_events
+                    task_type=task_type.task, eligible=eligible, auto_id=f"id_add{index}_{type_index}_%s"
                 ),
             }
-        )
+            for type_index, (task_type, eligible) in enumerate(addable)
+        ]
 
     # An additional Event Coordinator can be added (or removed) by the POC/Admin only,
     # on a Coverage request that is still open.
@@ -949,7 +979,7 @@ def assignment_detail(request, pk):
         {
             "request_obj": request_obj,
             "task_rows": task_rows,
-            "add_forms": add_forms,
+            "groups": groups,
             "can_manage_any": any(row["manageable"] for row in task_rows),
             "can_mark_ready": can_assign(roles, "", request_obj.coordinator_emails),
             "co_task": co_task,
@@ -1077,7 +1107,7 @@ def assignment_remove(request, pk):
     if not _in_assignment_scope(roles, request_obj, list(request_obj.tasks.all())):
         raise PermissionDenied("You don't have an assignment role on this request.")
     try:
-        removed = remove_shooter(task, roles.email)
+        removed = remove_task(task, roles.email)
     except RemovalError as exc:
         messages.error(request, str(exc))
     else:

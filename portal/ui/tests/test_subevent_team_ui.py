@@ -122,9 +122,11 @@ class TeamPageTests(Base):
 
     def test_the_add_a_task_area_offers_the_plus_button_the_task_types_and_the_sub_events(self):
         page = self.post()
-        self.assertContains(page, "Additional tasks")
-        self.assertContains(page, 'id="add-extra"')
         self.assertContains(page, 'id="extra-template"')
+        # A "+" under each sub-event, and one for the tasks that cover the whole event.
+        self.assertContains(page, 'data-sub="0">+ Add a task to Opening')
+        self.assertContains(page, 'data-sub="1">+ Add a task to Closing')
+        self.assertContains(page, 'data-sub="">+ Add a task to Whole event')
         self.assertIn("Photographer", page.context["extra_tasks"])
         self.assertIn("Content Writer", page.context["extra_tasks"])
         self.assertNotIn("Event Coordinator", page.context["extra_tasks"])
@@ -261,6 +263,99 @@ class ExtraTasksUITests(Base):
         self.assertEqual(request_obj.tasks.filter(task="Photographer").count(), 2)  # one per sub-event, no extra
 
 
+class DeleteAndPlusTests(Base):
+    """Delete / Restore on a proposed task, and the "+" under each sub-event."""
+
+    def keys(self, response):
+        return [r.key for r in response.context["rows"]]
+
+    def test_every_task_but_the_coordinator_and_supervisor_has_a_delete_button(self):
+        page = self.post()
+        for key in ("Photographer@s0", "Photo Editor@s0", "Photographer@s1", "Photo Editor@s1"):
+            self.assertContains(page, f'name="drop" value="{key}"')
+        for key in ("Event Coordinator", "Task Supervisor"):
+            self.assertNotContains(page, f'name="drop" value="{key}"')
+
+    def test_deleting_a_shooter_takes_their_editing_and_lists_it_for_restoring(self):
+        response = self.post(drop="Photographer@s0")
+        self.assertEqual(self.keys(response), ["Photographer@s1", "Photo Editor@s1", "Event Coordinator", "Task Supervisor"])
+        self.assertContains(response, 'name="restore" value="Photographer@s0"')
+        self.assertContains(response, 'name="dropped" value="Photographer@s0"')
+        deleted = [r for g in response.context["groups"] for r in g.rows if r.deleted]
+        self.assertEqual([(r.key, r.deleted_with_editing) for r in deleted], [("Photographer@s0", True)])
+        self.assertEqual((Request.objects.count(), Task.objects.count(), mail.outbox), (0, 0, []))
+
+    def test_a_deletion_is_remembered_by_the_next_press(self):
+        response = self.post(dropped=["Photographer@s0"], drop="Photo Editor@s1")
+        self.assertEqual(self.keys(response), ["Photographer@s1", "Event Coordinator", "Task Supervisor"])
+
+    def test_restore_brings_the_task_and_its_editing_back(self):
+        response = self.post(dropped=["Photographer@s0"], restore="Photographer@s0")
+        self.assertEqual(self.keys(response), ["Photographer@s0", "Photo Editor@s0", "Photographer@s1", "Photo Editor@s1",
+                                               "Event Coordinator", "Task Supervisor"])
+        self.assertNotContains(response, 'name="dropped"')
+
+    def test_deleting_an_editor_alone_keeps_its_shooter(self):
+        response = self.post(drop="Photo Editor@s0")
+        self.assertIn("Photographer@s0", self.keys(response))
+        self.assertNotIn("Photo Editor@s0", self.keys(response))
+
+    def test_the_coordinator_supervisor_and_unknown_tasks_cannot_be_deleted(self):
+        response = self.post(dropped=["Event Coordinator", "Nonsense"], drop="Task Supervisor")
+        self.assertIn("Event Coordinator", self.keys(response))
+        self.assertIn("Task Supervisor", self.keys(response))
+        self.assertEqual(response.context["dropped"], [])
+
+    def test_choices_made_on_other_rows_survive_a_deletion(self):
+        response = self.post(drop="Photographer@s0", picks={"Photographer@s1": self.vic.email})
+        row = next(r for r in response.context["rows"] if r.key == "Photographer@s1")
+        self.assertEqual(row.selected, self.vic.email)
+
+    def test_saving_leaves_out_what_was_deleted(self):
+        self.post(step="confirm", dropped=["Photographer@s0"], picks={"Photographer@s1": self.vic.email})
+        request_obj = self.saved()
+        self.assertFalse(request_obj.tasks.filter(sub_event__name="Opening").exists())
+        self.assertTrue(request_obj.tasks.filter(task="Photographer", sub_event__name="Closing").exists())
+        self.assertTrue(request_obj.tasks.filter(task="Event Coordinator").exists())
+
+    def test_a_deletion_changes_the_coordinators_deadline(self):
+        def due(response):
+            return next(r.due for r in response.context["rows"] if r.key == "Event Coordinator")
+
+        self.assertLess(due(self.post(dropped=["Photographer@s1"])), due(self.post()))
+
+    def test_every_sub_event_has_a_plus_even_when_all_its_tasks_are_deleted(self):
+        response = self.post(dropped=["Photographer@s0"])
+        group = response.context["groups"][0]
+        self.assertEqual((group.title, group.sub), ("Opening", "0"))
+        self.assertContains(response, 'data-sub="0">+ Add a task to Opening')
+
+    def test_a_task_added_with_a_plus_is_shown_under_that_sub_events_heading(self):
+        response = self.post(extras=[("Photographer", "1", self.vic.email), ("Content Writer", "", "")])
+        groups = {g.title: g for g in response.context["groups"]}
+        self.assertEqual([r.task for r in groups["Closing"].extras], ["Photographer"])
+        self.assertEqual([r.task for r in groups["Whole event"].extras], ["Content Writer"])
+        self.assertEqual(groups["Opening"].extras, [])
+
+    def test_a_single_day_event_has_one_untitled_group_with_a_plus(self):
+        self.client.force_login(self.poc)
+        start = timezone.now() + timedelta(days=5)
+        page = self.client.post(self.url, {
+            "type": "Coverage", "event_name": "One day", "event_kind": "single",
+            "event_start": fmt(start), "event_end": fmt(start + timedelta(hours=2)),
+            "venue": "Hall", "roles_needed": ["Photographer"], "platforms": ["Instagram"],
+            "drop": "Photographer",
+        })
+        self.assertEqual([g.title for g in page.context["groups"]], [""])
+        self.assertContains(page, 'data-sub="">+ Add a task</button>')
+        self.assertNotIn("Photographer", self.keys(page))
+
+    def test_a_clubs_own_request_cannot_use_drop(self):
+        self.client.force_login(self.club)
+        self.client.post(reverse("request-new"), {**self.body(), "dropped": "Photographer@s0"})
+        self.assertEqual(self.saved().tasks.filter(task="Photographer").count(), 2)
+
+
 class AssignmentsAfterwardsTests(Base):
     def setUp(self):
         super().setUp()
@@ -277,7 +372,7 @@ class AssignmentsAfterwardsTests(Base):
     def test_a_photographer_can_be_added_again_even_though_the_request_has_one(self):
         self.client.force_login(self.poc)
         page = self.client.get(reverse("assignment-detail", args=[self.request.pk]))
-        offered = [entry["task_type"].task for entry in page.context["add_forms"]]
+        offered = [entry["task_type"].task for entry in page.context["groups"][0]["add_forms"]]
         self.assertIn("Photographer", offered)
         self.assertNotIn("Task Supervisor", offered)  # one per request: reassign instead
 
@@ -328,6 +423,81 @@ class AssignmentsAfterwardsTests(Base):
         self.assertFalse(self.request.tasks.filter(email=self.pia.email).exists())
 
 
+class AssignmentGroupsTests(Base):
+    """The Assignments table is grouped by sub-event, each group with its own "+" and Delete buttons."""
+
+    def setUp(self):
+        super().setUp()
+        self.post(step="confirm", picks={"Photographer@s0": self.ravi.email, "Photographer@s1": self.vic.email})
+        self.request = self.saved()
+
+    def page(self):
+        self.client.force_login(self.poc)
+        return self.client.get(reverse("assignment-detail", args=[self.request.pk]))
+
+    def test_the_tasks_are_grouped_by_sub_event_then_the_whole_event(self):
+        groups = self.page().context["groups"]
+        self.assertEqual([g["title"] for g in groups], ["Opening", "Closing", "Whole event"])
+        self.assertEqual(
+            [
+                sorted([(r["task"].task, r["task"].sub_event.name if r["task"].sub_event else None) for r in g["rows"]], key=str)
+                for g in groups
+            ],
+            [
+                [("Photo Editor", "Opening"), ("Photographer", "Opening")],
+                [("Photo Editor", "Closing"), ("Photographer", "Closing")],
+                [("Event Coordinator", None), ("Task Supervisor", None)],
+            ],
+        )
+
+    def test_each_group_has_its_own_add_form_fixed_to_that_sub_event(self):
+        page = self.page()
+        groups = page.context["groups"]
+        opening, closing = self.request.sub_events.get(name="Opening"), self.request.sub_events.get(name="Closing")
+        self.assertEqual([g["sub_pk"] for g in groups], [str(opening.pk), str(closing.pk), ""])
+        for group in groups:
+            self.assertTrue(group["add_forms"])
+        for value in (opening.pk, closing.pk, ""):
+            self.assertContains(page, f'<input type="hidden" name="sub_event" value="{value}" />')
+        self.assertContains(page, "+ Add a task to Opening")
+        self.assertContains(page, "+ Add a task to Whole event")
+
+    def test_a_task_added_from_a_groups_plus_lands_in_that_sub_event(self):
+        closing = self.request.sub_events.get(name="Closing")
+        self.client.force_login(self.poc)
+        self.client.post(reverse("assignment-add", args=[self.request.pk]),
+                         {"task_type": "Photographer", "sub_event": str(closing.pk), "member_email": self.pia.email})
+        self.assertEqual(self.request.tasks.get(task="Photographer", email=self.pia.email).sub_event, closing)
+        groups = self.page().context["groups"]
+        self.assertEqual(len([r for r in groups[1]["rows"] if r["task"].task == "Photographer"]), 2)
+
+    def test_every_deletable_row_has_a_delete_button_and_the_coordinator_does_not(self):
+        page = self.page()
+        for row in page.context["task_rows"]:
+            url = reverse("assignment-remove", args=[row["task"].pk])
+            if row["task"].task in ("Event Coordinator", "Task Supervisor"):
+                self.assertNotContains(page, url)
+            else:
+                self.assertContains(page, url)
+
+    def test_no_add_forms_once_the_request_is_closed(self):
+        Request.objects.filter(pk=self.request.pk).update(status="Posted")
+        self.assertTrue(all(not g["add_forms"] for g in self.page().context["groups"]))
+
+    def test_a_single_day_event_is_one_untitled_group(self):
+        start = timezone.now() + timedelta(days=6)
+        self.client.force_login(self.poc)
+        self.client.post(self.url, {
+            "type": "Coverage", "event_name": "One day", "event_kind": "single", "step": "confirm",
+            "event_start": fmt(start), "event_end": fmt(start + timedelta(hours=2)),
+            "venue": "Hall", "roles_needed": ["Photographer"], "platforms": ["Instagram"],
+        })
+        single = Request.objects.get(event_name="One day")
+        groups = self.client.get(reverse("assignment-detail", args=[single.pk])).context["groups"]
+        self.assertEqual([(g["title"], g["sub_pk"]) for g in groups], [("", "")])
+        self.assertEqual(len(groups[0]["rows"]), 4)  # photographer, editor, coordinator, supervisor
+
+
 class RemoveViewTests(Base):
     def setUp(self):
         super().setUp()
@@ -362,16 +532,26 @@ class RemoveViewTests(Base):
         self.client.force_login(self.poc)
         self.assertEqual(self.client.get(reverse("assignment-remove", args=[self.shooter.pk])).status_code, 405)
 
-    def test_only_shooters_get_a_remove_button_and_only_for_those_who_can_manage_it(self):
+    def test_every_task_but_the_coordinator_and_supervisor_gets_a_delete_button(self):
         self.client.force_login(self.coordinator)
-        rows = {(r["task"].task, r["task"].sub_event_id): r for r in self.client.get(
+        rows = {r["task"].task: r for r in self.client.get(
             reverse("assignment-detail", args=[self.request.pk])).context["task_rows"]}
-        shooter_row = next(r for (name, _), r in rows.items() if name == "Photographer")
-        editor_row = next(r for (name, _), r in rows.items() if name == "Photo Editor")
-        coordinator_row = next(r for (name, _), r in rows.items() if name == "Event Coordinator")
-        self.assertTrue(shooter_row["removable"])
-        self.assertFalse(editor_row["removable"])
-        self.assertFalse(coordinator_row["removable"])
+        self.assertTrue(rows["Photographer"]["removable"])
+        self.assertTrue(rows["Photo Editor"]["removable"])
+        self.assertFalse(rows["Event Coordinator"]["removable"])
+        self.assertFalse(rows["Task Supervisor"]["removable"])
+
+    def test_an_editing_task_can_be_deleted_on_its_own(self):
+        editor = self.request.tasks.get(task="Photo Editor", sub_event__name="Closing")
+        self.remove(self.coordinator, editor)
+        self.assertFalse(Task.objects.filter(pk=editor.pk).exists())
+        self.assertTrue(Task.objects.filter(pk=self.shooter.pk).exists())
+
+    def test_the_coordinator_and_supervisor_cannot_be_deleted_by_posting(self):
+        for name in ("Event Coordinator", "Task Supervisor"):
+            task = self.request.tasks.get(task=name)
+            self.remove(self.poc, task)
+            self.assertTrue(Task.objects.filter(pk=task.pk).exists(), name)
 
     def test_the_page_shows_a_remove_button_for_shooters(self):
         self.client.force_login(self.coordinator)

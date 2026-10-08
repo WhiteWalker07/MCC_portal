@@ -154,10 +154,12 @@ separate email. It's a responsibility only — no points.
   **reassign** any of them — auto-pick a replacement or choose manually —
   and **add** an extra task type that wasn't in the original plan (e.g.
   another **Photographer or Videographer** for a big event; they arrive with
-  their own editing task). On a multi-day event choose whether the new person
-  is for the **whole event or one sub-event**. You can also **remove** a
-  photographer or videographer (and their editing) with the **Remove** button, until
-  their work is done. They are emailed, and the club is told its team changed. The one exception is the
+  their own editing task). On a multi-day event the tasks are grouped by
+  sub-event: press **+ Add a task** under a sub-event to add one for it (the
+  "Whole event" group adds one for the whole event). Every task has a **Delete**
+  button, until its work is done; deleting a photographer or videographer takes
+  their editing too. The Event Coordinator and Task Supervisor have none: reassign
+  them instead. People are emailed, and the club is told its team changed. The one exception is the
   **Task Supervisor** on your request: you can't change it — only the
   Secretary/POC or Admin can.
 - **A second coordinator.** The POC or an Admin can add one **additional Event
@@ -239,10 +241,12 @@ Everything above, plus:
   entered on its behalf, and each person gets their assignment. The request page
   shows who entered it.
   On a **multi-day event** the team page is grouped by sub-event, with its own
-  photographer and videographer to choose for each. **Additional tasks → + Add a
-  task** adds more people on top (any assignable task: a second photographer for one
-  sub-event, an extra writer, and so on; an extra photographer or videographer brings
-  their own editing). Leave the person on "Let the system decide" to have one picked.
+  photographer and videographer to choose for each. Press **+ Add a task** under a
+  sub-event to add more people on top (any assignable task: a second photographer for
+  that sub-event, an extra writer, and so on; an extra photographer or videographer
+  brings their own editing). **Delete** on a proposed task leaves it out (a shooter's
+  editing goes with them) and **Restore** brings it back; the Event Coordinator and
+  Task Supervisor can't be deleted. Leave the person on "Let the system decide" to have one picked.
 - **Out-of-work requests** (also on `Approvals`, and open to Admin): you're
   emailed when a member asks. Each shows their dates, reason and **open tasks**;
   **Approve** or **Decline** with an optional note (the member is emailed).

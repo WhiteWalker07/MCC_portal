@@ -296,6 +296,25 @@ This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
 
+### Tenth batch (+ and Delete under each sub-event)
+No migration. Two pages changed; both group by sub-event and put a **+** and **Delete** on it.
+- **Assignments** (`views.assignment_detail`, `assignment_detail.html`): the table is split into
+  `groups` (one per sub-event in time order, then "Whole event"; a request with no sub-events is
+  one untitled group). Each group has a `<details>` "+ Add a task" with the per-type add forms,
+  carrying a hidden `sub_event` (blank = whole event); `assignment_add` is unchanged. The
+  context's `add_forms` is gone (now `groups[i]["add_forms"]`); the forms are hidden once the
+  request is closed. **Delete** (`assignment_remove`) now works on any task of a Coverage request
+  except the Event Coordinator and Task Supervisor, until it is DONE: `engine.assignment.remove_task`
+  (was `remove_shooter`). A shooter takes its paired editing; an editor goes alone.
+- **Team page** (`ui/allocation.py`, `request_allocate.html`, `_allocate_row.html`): every
+  sub-event (and "Whole event") has a **+** that adds a row under it (JS, pre-selecting the
+  sub-event; numbering still `extra-<i>-*`). Each proposed task has **Delete**, a plain submit
+  (`name="drop"`), which re-renders the page; deleted keys are carried as hidden `dropped`
+  inputs and shown struck through with **Restore** (`name="restore"`). `build_pipeline(...,
+  dropped=)` leaves them out (a dropped shooter drops its editor, EC/Supervisor never) and the
+  coordinator's deadline follows what is left; `propose_team` / `process_new_request` take the
+  same `dropped`. Only the POC/Admin back-entry flow reads these fields.
+
 ### Ninth batch (additional Event Coordinator)
 Migration `0010` is schema-only (`Request.co_coordinator_email`, `Task.additional`). Same deploy
 order; no seed step. Existing requests are untouched (no co-coordinator).
@@ -346,6 +365,7 @@ Requests already in the database are untouched (their tasks have no sub-event).
   `assignment_remove`) for a Photographer/Videographer that isn't done, taking their
   paired editing with it, emailing them and the club, and recalculating the coordinator's
   deadline. Same authority as reassigning (`can_assign`).
+  *Superseded in the tenth batch below.*
 - **Landing page**: `ui/home_views.py` / `home.html`, `/`, first in the menu, sections by role.
 
 ### Seventh batch (choose the team before saving a back-entered request)

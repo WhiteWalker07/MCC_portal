@@ -145,7 +145,7 @@ def staff_pipeline(
 
 
 def propose_team(
-    request_obj, preferred: dict[str, TeamMember] | None = None, *, sub_events=None, extras=None
+    request_obj, preferred: dict[str, TeamMember] | None = None, *, sub_events=None, extras=None, dropped=None
 ) -> list[Staffed]:
     """
     The team the engine would pick for an unsaved request, with any hand picks
@@ -155,7 +155,7 @@ def propose_team(
     """
     pipeline = build_pipeline(
         request_obj, get_task_types(), timezone.now(), get_points_scheme(),
-        sub_events=ordered_sub_events(sub_events or []), extras=extras,
+        sub_events=ordered_sub_events(sub_events or []), extras=extras, dropped=dropped,
     )
     return staff_pipeline(
         request_obj, pipeline, get_settings(), get_team(), calendar_service(), preferred
@@ -234,7 +234,9 @@ def add_task_from_type(
     )
 
 
-def process_new_request(request_obj, *, skip_approval: bool = False, preferred=None, extras=None) -> None:
+def process_new_request(
+    request_obj, *, skip_approval: bool = False, preferred=None, extras=None, dropped=None
+) -> None:
     """
     Take a freshly submitted request from 'New' to either 'Pending for POC
     approval' or 'Request Accepted'.
@@ -244,7 +246,8 @@ def process_new_request(request_obj, *, skip_approval: bool = False, preferred=N
     entered on a club's behalf: they are the approver, so it is accepted straight
     away (short-notice Coverage and Posts included). `preferred` is the team they
     chose by hand for that request (task ident -> TeamMember), already validated,
-    and `extras` the additional tasks they asked for ([(task name, sub-event index)]).
+    and `extras` the additional tasks they asked for ([(task name, sub-event index)]);
+    `dropped` is the set of task keys they chose to leave out.
 
     A multi-day event with sub-events gets its own photographer/videographer (and
     their editing) for each sub-event, so the sub-events must already be saved.
@@ -264,7 +267,7 @@ def process_new_request(request_obj, *, skip_approval: bool = False, preferred=N
     now = timezone.now()
     pipeline = build_pipeline(
         request_obj, task_types, now, scheme,
-        sub_events=ordered_sub_events(request_obj.sub_events.all()), extras=extras,
+        sub_events=ordered_sub_events(request_obj.sub_events.all()), extras=extras, dropped=dropped,
     )
     staffed_list = staff_pipeline(request_obj, pipeline, settings, team, calendar, preferred)
 

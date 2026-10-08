@@ -17,7 +17,7 @@ from django.utils import timezone
 from core.config import get_points_scheme, get_task_types
 from core.constants import TaskStatus
 from core.models import Request, SubEvent, Task, TaskType, TeamMember
-from engine.assignment import RemovalError, remove_shooter
+from engine.assignment import RemovalError, remove_task
 from engine.event_changes import release_sub_event, retime_sub_event, staff_new_sub_event
 from engine.pipeline import build_pipeline, number_extras, ordered_sub_events, task_key
 from engine.workflow import process_new_request
@@ -136,6 +136,55 @@ class PipelineShapeTests(TestCase):
         late = SubEvent.objects.create(request=request_obj, name="Later", start=day(9, 10), end=day(9, 12))
         early = SubEvent.objects.create(request=request_obj, name="Earlier", start=day(8, 10), end=day(8, 12))
         self.assertEqual([s.pk for s in ordered_sub_events(request_obj.sub_events.all())], [early.pk, late.pk])
+
+
+class DroppedTasksTests(TestCase):
+    """Tasks the person entering a request chose to leave out (the team page's Delete)."""
+
+    def setUp(self):
+        make_world()
+
+    def pipeline(self, request_obj, dropped):
+        subs = ordered_sub_events(request_obj.sub_events.all())
+        return {
+            p.ident: p
+            for p in build_pipeline(
+                request_obj, get_task_types(), timezone.now(), get_points_scheme(), sub_events=subs, dropped=dropped
+            )
+        }
+
+    def test_dropping_a_shooter_drops_the_editing_that_follows_them(self):
+        keys = list(self.pipeline(multiday(roles=("Photographer",)), {"Photographer@s0"}))
+        self.assertEqual(keys, ["Photographer@s1", "Photo Editor@s1", "Event Coordinator", "Task Supervisor"])
+
+    def test_dropping_an_editor_leaves_its_shooter(self):
+        keys = list(self.pipeline(multiday(roles=("Photographer",)), {"Photo Editor@s1"}))
+        self.assertEqual(
+            keys, ["Photographer@s0", "Photographer@s1", "Photo Editor@s0", "Event Coordinator", "Task Supervisor"]
+        )
+
+    def test_the_coordinator_and_supervisor_cannot_be_dropped(self):
+        keys = self.pipeline(multiday(roles=("Photographer",)), {"Event Coordinator", "Task Supervisor"})
+        self.assertIn("Event Coordinator", keys)
+        self.assertIn("Task Supervisor", keys)
+
+    def test_the_coordinator_is_due_after_what_is_left(self):
+        request_obj = multiday(roles=("Photographer",))
+        full, less = self.pipeline(request_obj, set()), self.pipeline(request_obj, {"Photographer@s1"})
+        self.assertLess(less["Event Coordinator"].deadline, full["Event Coordinator"].deadline)
+        self.assertEqual(less["Event Coordinator"].deadline, less["Photo Editor@s0"].deadline + timedelta(hours=12))
+
+    def test_saving_with_dropped_tasks_creates_only_the_rest(self):
+        request_obj = multiday(roles=("Photographer",))
+        run(request_obj, skip_approval=True, dropped={"Photographer@s0"})
+        self.assertEqual(
+            sorted(request_obj.tasks.values_list("task", "sub_event__name"), key=str),
+            sorted(
+                [("Photographer", "Day 2 talk"), ("Photo Editor", "Day 2 talk"),
+                 ("Event Coordinator", None), ("Task Supervisor", None)],
+                key=str,
+            ),
+        )
 
 
 class ExtraTasksTests(TestCase):
@@ -275,20 +324,20 @@ class RemoveShooterTests(TestCase):
 
     def test_removes_the_shooter_and_their_editing(self):
         before = self.request.tasks.count()
-        removed = remove_shooter(self.video, "poc@iimsirmaur.ac.in")
+        removed = remove_task(self.video, "poc@iimsirmaur.ac.in")
         self.assertEqual(removed, ["Videographer — Day 1 talk", "Video Editor — Day 1 talk"])
         self.assertEqual(self.request.tasks.count(), before - 2)
         self.assertFalse(self.request.tasks.filter(sub_event__name="Day 1 talk", task__in=["Videographer", "Video Editor"]).exists())
 
     def test_the_other_sub_events_team_is_untouched(self):
-        remove_shooter(self.video, "poc@iimsirmaur.ac.in")
+        remove_task(self.video, "poc@iimsirmaur.ac.in")
         self.assertTrue(self.request.tasks.filter(sub_event__name="Day 2 talk", task="Videographer").exists())
         self.assertTrue(self.request.tasks.filter(task="Photographer", sub_event__name="Day 1 talk").exists())
 
     def test_the_person_is_told_once_listing_everything_taken_off_them(self):
         holder = self.video.email
         mail.outbox.clear()
-        remove_shooter(self.video, "poc@iimsirmaur.ac.in")
+        remove_task(self.video, "poc@iimsirmaur.ac.in")
         notes = [m for m in mail.outbox if m.subject.startswith("[Removed]") and holder in m.to]
         self.assertEqual(len(notes), 1)
         self.assertIn("Videographer — Day 1 talk", notes[0].body)
@@ -296,7 +345,7 @@ class RemoveShooterTests(TestCase):
 
     def test_the_club_is_told_and_its_team_list_loses_them(self):
         mail.outbox.clear()
-        remove_shooter(self.video, "poc@iimsirmaur.ac.in")
+        remove_task(self.video, "poc@iimsirmaur.ac.in")
         update = next(m for m in mail.outbox if m.subject.startswith("[Team update]"))
         self.assertEqual(update.to, [COMMITTEE_EMAIL])
         self.assertIn("Videographer — Day 1 talk", update.body)
@@ -307,7 +356,7 @@ class RemoveShooterTests(TestCase):
         coordinator = self.request.tasks.get(task="Event Coordinator")
         # Take the last-due work away: the video editing of the final day.
         last = self.request.tasks.get(task="Video Editor", sub_event__name="Day 2 talk")
-        remove_shooter(self.request.tasks.get(task="Videographer", sub_event__name="Day 2 talk"), "poc")
+        remove_task(self.request.tasks.get(task="Videographer", sub_event__name="Day 2 talk"), "poc")
         coordinator.refresh_from_db()
         remaining = max(t.deadline for t in self.request.tasks.exclude(task__in=["Event Coordinator", "Task Supervisor"]))
         self.assertEqual(coordinator.deadline, remaining + timedelta(hours=12))
@@ -317,30 +366,43 @@ class RemoveShooterTests(TestCase):
         Task.objects.filter(pk=self.video.pk).update(status=TaskStatus.DONE)
         self.video.refresh_from_db()
         with self.assertRaises(RemovalError):
-            remove_shooter(self.video, "poc")
+            remove_task(self.video, "poc")
         self.assertTrue(Task.objects.filter(pk=self.video.pk).exists())
 
-    def test_only_photographers_and_videographers_can_be_removed(self):
-        for name in ("Event Coordinator", "Task Supervisor", "Photo Editor"):
+    def test_the_coordinator_and_supervisor_cannot_be_removed(self):
+        for name in ("Event Coordinator", "Task Supervisor"):
             with self.assertRaises(RemovalError):
-                remove_shooter(self.request.tasks.filter(task=name).first(), "poc")
+                remove_task(self.request.tasks.filter(task=name).first(), "poc")
+            self.assertTrue(self.request.tasks.filter(task=name).exists())
+
+    def test_an_editing_task_can_be_removed_on_its_own(self):
+        editor = self.request.tasks.get(task="Video Editor", sub_event__name="Day 1 talk")
+        self.assertEqual(remove_task(editor, "poc"), ["Video Editor — Day 1 talk"])
+        self.assertTrue(Task.objects.filter(pk=self.video.pk).exists())
+        self.assertFalse(Task.objects.filter(pk=editor.pk).exists())
+
+    def test_only_a_coverage_request_can_have_tasks_removed(self):
+        post = Request.objects.create(type="Post", event_name="P", contact_email=COMMITTEE_EMAIL, status="Request Accepted")
+        task = Task.objects.create(request=post, req_type="Post", task="Content Writer", event_name="P")
+        with self.assertRaises(RemovalError):
+            remove_task(task, "poc")
 
     def test_a_closed_request_cannot_be_changed(self):
         Request.objects.filter(pk=self.request.pk).update(status="Posted")
         self.video.refresh_from_db()
         with self.assertRaises(RemovalError):
-            remove_shooter(self.video, "poc")
+            remove_task(self.video, "poc")
 
     def test_an_editing_task_that_is_already_done_is_kept(self):
         editor = self.request.tasks.get(task="Video Editor", sub_event__name="Day 1 talk")
         Task.objects.filter(pk=editor.pk).update(status=TaskStatus.DONE)
-        removed = remove_shooter(self.video, "poc")
+        removed = remove_task(self.video, "poc")
         self.assertEqual(removed, ["Videographer — Day 1 talk"])
         self.assertTrue(Task.objects.filter(pk=editor.pk).exists())
 
     def test_the_club_is_not_promised_a_replacement(self):
         mail.outbox.clear()
-        remove_shooter(self.video, "poc@iimsirmaur.ac.in")
+        remove_task(self.video, "poc@iimsirmaur.ac.in")
         update = next(m for m in mail.outbox if m.subject.startswith("[Team update]"))
         self.assertNotIn("Whoever covers it now", update.body)
         self.assertIn("taken off", update.body)
@@ -349,14 +411,14 @@ class RemoveShooterTests(TestCase):
         self.request.tasks.exclude(pk__in=[self.video.pk]).exclude(
             task__in=["Event Coordinator", "Task Supervisor"]
         ).update(status=TaskStatus.DONE)
-        remove_shooter(self.video, "poc")  # its Video Editor goes too; everything left is done
+        remove_task(self.video, "poc")  # its Video Editor goes too; everything left is done
         self.request.refresh_from_db()
         self.assertEqual(self.request.status, "Event Covered")
 
     def test_it_is_written_to_the_activity_log(self):
         from core.models import ActivityLog
 
-        remove_shooter(self.video, "poc@iimsirmaur.ac.in")
+        remove_task(self.video, "poc@iimsirmaur.ac.in")
         self.assertTrue(ActivityLog.objects.filter(event="task-removed", actor="poc@iimsirmaur.ac.in").exists())
 
 
