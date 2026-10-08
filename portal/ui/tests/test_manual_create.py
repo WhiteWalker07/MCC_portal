@@ -54,8 +54,9 @@ class Base(TestCase):
         return body
 
     def post_for_club(self, user=None, **extra):
+        """Fill the form and confirm the team, leaving everything on the system's picks."""
         self.client.force_login(user or self.poc)
-        return self.client.post(self.url(), self.coverage(**extra))
+        return self.client.post(self.url(), {**self.coverage(**extra), "step": "confirm"})
 
 
 class ManualCreationAccessTests(Base):
@@ -136,7 +137,7 @@ class ManualCreationFlowTests(Base):
         self.client.post(
             self.url(),
             {"type": "Post", "event_name": "Launch", "platforms": ["Instagram"],
-             "content_links": "http://example.invalid/x", "requester": "x"},
+             "content_links": "http://example.invalid/x", "requester": "x", "step": "confirm"},
         )
         request_obj = Request.objects.get(event_name="Launch")
         self.assertEqual(request_obj.status, "Request Accepted")
@@ -232,7 +233,7 @@ class SubmittedPopupTests(Base):
         self.assertContains(page, "accepted and the team has been assigned")
 
     def test_a_request_entered_for_a_club_says_the_club_was_emailed_and_stays_on_that_club(self):
-        page = self.submit_and_follow(self.poc, self.coverage(), url=self.url())
+        page = self.submit_and_follow(self.poc, {**self.coverage(), "step": "confirm"}, url=self.url())
         self.assertContains(page, "for Marketing")
         self.assertContains(page, "the club has been emailed")
         self.assertEqual(page.redirect_chain[-1][0], self.url())

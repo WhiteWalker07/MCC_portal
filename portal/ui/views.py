@@ -83,6 +83,7 @@ from engine.workflow import (
 )
 from services.calendar import calendar_service
 
+from . import allocation
 from . import dashboard as dashboard_data
 from .forms import (
     AddTaskForm,
@@ -223,7 +224,12 @@ def request_new(request):
         wants_subevents = multiday and "sub-TOTAL_FORMS" in request.POST
         subevents_ok = subevents.is_valid() if wants_subevents else True
 
-        if form_ok and subevents_ok:
+        # A request entered for a club goes through a second step, where the POC/Admin
+        # sees (and can change) the team before anything is saved or sent. "Back"
+        # returns to the form with everything still filled in.
+        step = request.POST.get("step", "") if on_behalf else ""
+
+        if form_ok and subevents_ok and step != "edit":
             new_request = form.save(commit=False)
             # Content fields only — everything engine-owned is set here, never
             # taken from the form.
@@ -234,6 +240,32 @@ def request_new(request):
             new_request.created_at = timezone.now()
             new_request.roles_needed = form.cleaned_data.get("roles_needed") or []
             new_request.platforms = form.cleaned_data.get("platforms") or []
+
+            preferred = None
+            if on_behalf:
+                # Only the club's campus is needed to pick a team; the rest happens
+                # when the request is really saved.
+                new_request.campus = on_behalf.campus or ""
+                pipeline = allocation.pipeline_for(new_request)
+                posted = allocation.picks_from_post(request.POST, [p.task for p in pipeline])
+                preferred, errors = allocation.validate_picks(new_request, posted, pipeline)
+                if step != "confirm" or errors:
+                    if errors:
+                        messages.error(
+                            request, "Some of the people you chose can't be assigned. See the notes below."
+                        )
+                    return render(
+                        request,
+                        "ui/request_allocate.html",
+                        {
+                            "draft": new_request,
+                            "on_behalf": on_behalf,
+                            "rows": allocation.build_rows(new_request, posted, errors),
+                            "carried": allocation.carried_fields(request.POST),
+                            "is_multiday": multiday,
+                        },
+                    )
+
             new_request.save()
 
             # Saved before the engine runs so the POC's approval email can list
@@ -243,8 +275,10 @@ def request_new(request):
                 subevents.save()
 
             # A request entered for a club by the POC/Admin is accepted straight
-            # away: they are the approver, and the club is emailed as usual.
-            process_new_request(new_request, skip_approval=on_behalf is not None)
+            # away: they are the approver, and the club is emailed as usual. The
+            # team they chose (anything not chosen is picked by the engine) is
+            # applied as the request is staffed.
+            process_new_request(new_request, skip_approval=on_behalf is not None, preferred=preferred)
             new_request.refresh_from_db()
 
             # Post/Redirect/Get: back to a blank form (a refresh can't resubmit),

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass
 
 from django.db import transaction
 from django.utils import timezone
@@ -50,7 +51,7 @@ from . import leave as leave_sweep
 from .assign import Choice, choose_member, choose_supervisor
 from .confirm import confirm_request
 from .notify import award_points
-from .pipeline import build_pipeline
+from .pipeline import PipelineTask, build_pipeline
 from .points import final_points, overdue_multiplier
 from .posting import find_next_slot
 from .refcode import allocate_ref_code
@@ -84,7 +85,77 @@ def open_supervision_counts() -> dict[str, int]:
     return counts
 
 
-def process_new_request(request_obj, *, skip_approval: bool = False) -> None:
+@dataclass(frozen=True)
+class Staffed:
+    """One pipeline task and who it went to (`member` is None when nobody was eligible)."""
+
+    pipeline_task: PipelineTask
+    member: TeamMember | None
+    reason: str
+    #: True when a person chose this assignee by hand instead of the engine picking.
+    chosen: bool = False
+
+
+def staff_pipeline(
+    request_obj, pipeline, settings, team, calendar, preferred: dict[str, TeamMember] | None = None
+) -> list[Staffed]:
+    """
+    Decide who gets each task of `pipeline`. Touches nothing: it only reads, so it
+    serves both the real thing (`process_new_request`) and the preview a POC/Admin
+    sees before saving a request they are entering for a club (`propose_team`).
+
+    `preferred` maps a task name to a person chosen by hand; the caller has already
+    checked they are allowed. Everything not in it is picked by the engine as usual.
+    A hand-picked person counts as already on the request, so the automatic picks
+    steer around them. An editing task with no explicit pick goes to whoever holds
+    its shoot, as ever.
+    """
+    preferred = preferred or {}
+    already_assigned: set[str] = {m.email for task, m in preferred.items() if task != TASK_SUPERVISOR}
+    open_counts = open_supervision_counts()
+    # Who got each shoot role, so its editing task can go to the same person.
+    shooter_member: dict[str, TeamMember] = {}
+    staffed: list[Staffed] = []
+
+    for pipeline_task in pipeline:
+        picked = preferred.get(pipeline_task.task)
+        paired = shooter_member.get(pipeline_task.pairs_with) if pipeline_task.pairs_with else None
+        if picked is not None:
+            choice = Choice(member=picked, reason="")
+        elif pipeline_task.task == TASK_SUPERVISOR:
+            choice = choose_supervisor(request_obj, settings, team, open_counts)
+        elif paired is not None:
+            # Each shooter edits their own work, whether or not they hold the
+            # editing skill. (If the shooter is unfilled there's nobody to reuse
+            # and the editor is auto-picked below like any other task.)
+            choice = Choice(member=paired, reason="")
+        else:
+            choice = choose_member(
+                pipeline_task, request_obj, settings, team, already_assigned, calendar
+            )
+        member = choice.member
+        if member is not None and pipeline_task.task in DERIVED_EDITOR:
+            shooter_member[pipeline_task.task] = member
+        if member is not None and pipeline_task.task != TASK_SUPERVISOR:
+            already_assigned.add(member.email)
+        staffed.append(Staffed(pipeline_task, member, choice.reason, chosen=picked is not None))
+    return staffed
+
+
+def propose_team(request_obj, preferred: dict[str, TeamMember] | None = None) -> list[Staffed]:
+    """
+    The team the engine would pick for an unsaved request, with any hand picks
+    applied. Nothing is saved and nobody is emailed. `request_obj` only needs its
+    form fields and `campus` (normally filled in when the reference code is
+    allocated, so the caller sets it from the club).
+    """
+    pipeline = build_pipeline(request_obj, get_task_types(), timezone.now(), get_points_scheme())
+    return staff_pipeline(
+        request_obj, pipeline, get_settings(), get_team(), calendar_service(), preferred
+    )
+
+
+def process_new_request(request_obj, *, skip_approval: bool = False, preferred=None) -> None:
     """
     Take a freshly submitted request from 'New' to either 'Pending for POC
     approval' or 'Request Accepted'.
@@ -92,7 +163,8 @@ def process_new_request(request_obj, *, skip_approval: bool = False) -> None:
     Allocates the reference code, builds and staffs the task pipeline, then
     applies the approval gate. `skip_approval` is for a request the POC/Admin
     entered on a club's behalf: they are the approver, so it is accepted straight
-    away (short-notice Coverage and Posts included).
+    away (short-notice Coverage and Posts included). `preferred` is the team they
+    chose by hand for that request (task name -> TeamMember), already validated.
     """
     allocation = allocate_ref_code(request_obj)
     if not allocation.ok:
@@ -109,36 +181,18 @@ def process_new_request(request_obj, *, skip_approval: bool = False) -> None:
     now = timezone.now()
     pipeline = build_pipeline(request_obj, task_types, now, scheme)
 
-    already_assigned: set[str] = set()
     coordinator_email = ""
     supervisor_email = ""
     tasks_to_create: list[Task] = []
     outcomes: list[tuple[str, TeamMember | None, str]] = []
-    open_counts = open_supervision_counts()
-    # Who got each shoot role, so its editing task can go to the same person.
-    shooter_member: dict[str, TeamMember] = {}
+    chosen_by_hand: set[str] = set()
 
-    for pipeline_task in pipeline:
-        paired = shooter_member.get(pipeline_task.pairs_with) if pipeline_task.pairs_with else None
-        if pipeline_task.task == TASK_SUPERVISOR:
-            choice = choose_supervisor(request_obj, settings, team, open_counts)
-        elif paired is not None:
-            # Each shooter edits their own work, whether or not they hold the
-            # editing skill. (If the shooter is unfilled there's nobody to reuse
-            # and the editor is auto-picked below like any other task.)
-            choice = Choice(member=paired, reason="")
-        else:
-            choice = choose_member(
-                pipeline_task, request_obj, settings, team, already_assigned, calendar
-            )
-        member = choice.member
-        if member is not None and pipeline_task.task in DERIVED_EDITOR:
-            shooter_member[pipeline_task.task] = member
+    for staffed in staff_pipeline(request_obj, pipeline, settings, team, calendar, preferred):
+        pipeline_task, member, reason = staffed.pipeline_task, staffed.member, staffed.reason
+        choice = Choice(member=member, reason=reason)
         if member is not None:
             if pipeline_task.task == TASK_SUPERVISOR:
                 supervisor_email = member.email
-            else:
-                already_assigned.add(member.email)
             if pipeline_task.task == TASK_EVENT_COORDINATOR:
                 coordinator_email = member.email
 
@@ -166,6 +220,8 @@ def process_new_request(request_obj, *, skip_approval: bool = False) -> None:
             )
         )
         outcomes.append((pipeline_task.task, member, choice.reason))
+        if staffed.chosen:
+            chosen_by_hand.add(pipeline_task.task)
 
     with transaction.atomic():
         # coordinator_email is only known after the whole pipeline is staffed,
@@ -188,13 +244,17 @@ def process_new_request(request_obj, *, skip_approval: bool = False) -> None:
         + (f" on behalf of {request_obj.contact_email}" if request_obj.created_on_behalf_by else ""),
     )
     for task_name, member, reason in outcomes:
+        chosen = task_name in chosen_by_hand
         log_activity(
             "proposed" if member else "unfilled",
             request_obj=request_obj,
             ref_code=allocation.ref_code,
             member=member.email if member else "",
             detail=(
-                f"{task_name} -> {member.name}" if member else f"{task_name} UNFILLED: {reason}"
+                f"{task_name} -> {member.name}"
+                + (f" (chosen by {request_obj.created_on_behalf_by})" if chosen else "")
+                if member
+                else f"{task_name} UNFILLED: {reason}"
             ),
         )
 

@@ -197,9 +197,19 @@ Everything above, plus:
   press **Go**. The form then works as that club's: Coverage is offered, the
   requester is locked to the club's name, and the request **belongs to the club**
   (it appears under the club's `My Requests` and its ID uses the club's prefix).
-  It is **accepted straight away**: no approval step, even for a short-notice
-  event or a Post. The club gets the usual accepted email, which says it was
-  entered on its behalf. The request page shows who entered it.
+  Fill in the form and press **Next: choose the team**. You then see **who the
+  system would pick for every task** (photographer, editors, coordinator,
+  supervisor, or the Post roles), each with a dropdown, **before anything is saved
+  or any email is sent**. Change anyone you like, leave the rest on the system's
+  pick, and press **Save and send emails** (or **Back** to edit the form; nothing
+  is lost). People you choose are checked against the usual rules (active, not Out
+  of work, first-year for hands-on work and second-year for supervising, the
+  club's campus, free during the event) and refused with the reason if they don't
+  pass. An editing task defaults to the same person as its shoot. Saving **accepts
+  it straight away**: no approval step, even for a short-notice event or a Post. The
+  club gets the usual accepted email (with the team copied in), which says it was
+  entered on its behalf, and each person gets their assignment. The request page
+  shows who entered it.
 - **Out-of-work requests** (also on `Approvals`, and open to Admin): you're
   emailed when a member asks. Each shows their dates, reason and **open tasks**;
   **Approve** or **Decline** with an optional note (the member is emailed).
