@@ -187,6 +187,36 @@ class DroppedTasksTests(TestCase):
         )
 
 
+class AdditionalCoordinatorPipelineTests(TestCase):
+    def setUp(self):
+        make_world()
+
+    def test_it_comes_right_after_the_main_coordinator_and_is_flagged(self):
+        request_obj = multiday(roles=("Photographer",))
+        pipeline = build_pipeline(
+            request_obj, get_task_types(), timezone.now(), get_points_scheme(),
+            sub_events=ordered_sub_events(request_obj.sub_events.all()), co_coordinator=True,
+        )
+        self.assertEqual([p.ident for p in pipeline][-3:], ["Event Coordinator", "Event Coordinator+1", "Task Supervisor"])
+        self.assertEqual({p.ident: p.additional for p in pipeline if p.task == "Event Coordinator"},
+                         {"Event Coordinator": False, "Event Coordinator+1": True})
+        deadlines = {p.deadline for p in pipeline if p.task == "Event Coordinator"}
+        self.assertEqual(len(deadlines), 1)
+
+    def test_a_post_never_has_one(self):
+        post = Request.objects.create(type="Post", event_name="P", contact_email=COMMITTEE_EMAIL, status="New")
+        pipeline = build_pipeline(post, get_task_types(), timezone.now(), get_points_scheme(), co_coordinator=True)
+        self.assertFalse([p for p in pipeline if p.task == "Event Coordinator"])
+
+    def test_saving_with_one_creates_two_coordinator_tasks(self):
+        request_obj = multiday(roles=("Photographer",))
+        run(request_obj, skip_approval=True, co_coordinator=True)
+        coordinators = list(request_obj.tasks.filter(task="Event Coordinator").order_by("additional"))
+        self.assertEqual([c.additional for c in coordinators], [False, True])
+        self.assertEqual(request_obj.co_coordinator_email, coordinators[1].email)
+        self.assertNotEqual(coordinators[0].email, coordinators[1].email)
+
+
 class ExtraTasksTests(TestCase):
     def setUp(self):
         make_world()

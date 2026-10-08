@@ -259,6 +259,21 @@ class WhoCanAddOrRemoveTests(Base):
         self.assertContains(after, "Remove additional coordinator")
         self.assertContains(after, "(additional)")
 
+    def test_staff_are_told_why_when_a_request_cannot_have_one(self):
+        self.client.force_login(self.admin)
+        Request.objects.filter(pk=self.request.pk).update(status="Posted")
+        closed = self.client.get(reverse("assignment-detail", args=[self.request.pk]))
+        self.assertContains(closed, "Additional Event Coordinator")
+        self.assertContains(closed, "can no longer be changed")
+        self.assertNotContains(closed, "Add additional coordinator")
+        post = Request.objects.create(type="Post", event_name="P", contact_email=COMMITTEE_EMAIL, status="Request Accepted")
+        page = self.client.get(reverse("assignment-detail", args=[post.pk]))
+        self.assertContains(page, "Only a Coverage request has an Event Coordinator")
+
+    def test_the_main_coordinator_is_not_shown_the_section_at_all(self):
+        self.client.force_login(self.main_user)
+        self.assertNotContains(self.client.get(reverse("assignment-detail", args=[self.request.pk])), "Additional Event Coordinator")
+
     def add(self):
         with mock.patch("engine.assignment.calendar_service", return_value=FreeCalendar()), \
                 mock.patch("engine.notify.calendar_service", return_value=FreeCalendar()):

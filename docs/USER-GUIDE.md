@@ -246,7 +246,10 @@ Everything above, plus:
   that sub-event, an extra writer, and so on; an extra photographer or videographer
   brings their own editing). **Delete** on a proposed task leaves it out (a shooter's
   editing goes with them) and **Restore** brings it back; the Event Coordinator and
-  Task Supervisor can't be deleted. Leave the person on "Let the system decide" to have one picked.
+  Task Supervisor can't be deleted. Under **Whole event**, **+ Add an additional Event
+  Coordinator** gives the request a second coordinator (a different person from the
+  main one, with the same powers; each is scored on their own task); **Delete** on its
+  row takes it away again. Leave the person on "Let the system decide" to have one picked.
 - **Out-of-work requests** (also on `Approvals`, and open to Admin): you're
   emailed when a member asks. Each shows their dates, reason and **open tasks**;
   **Approve** or **Decline** with an optional note (the member is emailed).

@@ -78,9 +78,11 @@
     </div>
   {% endfor %}
 
-  {% if co_task or coordinator_form %}
+  {% if co_task or coordinator_form or coordinator_note %}
     <h2 class="h2">Additional Event Coordinator</h2>
-    {% if co_task %}
+    {% if coordinator_note and not co_task %}
+      <p class="muted">{{ coordinator_note }}</p>
+    {% elif co_task %}
       <p>{{ co_task.member|default:"(unfilled)" }} <span class="muted mono">{{ co_task.email }}</span> coordinates this event alongside
         {% if request_obj.coordinator_email %}{{ request_obj.coordinator_email }}{% else %}the main coordinator{% endif %}.
         They can do everything the main coordinator can, and are scored on their own task.
