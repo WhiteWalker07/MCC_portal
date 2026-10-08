@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Choose the team — Media Committee Portal{% endblock %}
+{% block content %}
+<section class="card stack">
+  <h1>Choose the team</h1>
+  <p class="note">Nothing is saved or sent yet. This request is for <strong>{{ on_behalf.name }}</strong> ({{ on_behalf.acronym }}).
+    Each task shows the person the system would pick; change anyone you like, then press <strong>Save and send emails</strong>.</p>
+
+  <dl class="dl">
+    <div><dt>Event</dt><dd>{{ draft.event_name|default:"(untitled)" }} <span class="muted">· {{ draft.type }}</span></dd></div>
+    {% if draft.event_start %}
+      <div><dt>When</dt><dd>
+        {% if is_multiday %}{{ draft.event_start|date:"D d M" }} – {{ draft.event_end|date:"D d M Y" }} <span class="muted">(multi-day)</span>
+        {% else %}{{ draft.event_start|date:"D d M Y, H:i" }} – {{ draft.event_end|date:"H:i" }}{% endif %}
+      </dd></div>
+    {% endif %}
+  </dl>
+
+  <form method="post" class="stack" novalidate>
+    {% csrf_token %}
+    {% for key, value in carried %}<input type="hidden" name="{{ key }}" value="{{ value }}" />{% endfor %}
+
+    <div style="overflow-x:auto">
+      <table class="roster">
+        <thead><tr><th>Task</th><th>Who</th><th>Due</th></tr></thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td>{{ row.task }}{% if row.vertical %}<br><span class="muted">{{ row.vertical }}</span>{% endif %}</td>
+              <td>
+                <select class="input" name="pick:{{ row.task }}" aria-label="Who does {{ row.task }}">
+                  <option value=""{% if not row.selected %} selected{% endif %}>{% if row.follows %}Same person as the {{ row.follows }}{% else %}Let the system decide{% endif %}</option>
+                  {% for email, label in row.options %}<option value="{{ email }}"{% if row.selected == email %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+                {% if row.note %}<p class="error">Nobody is eligible: {{ row.note }}.</p>{% endif %}
+                {% if row.error %}<p class="error">{{ row.error }}</p>{% endif %}
+                {% for warning in row.warnings %}<p class="muted">⚠ {{ warning }}</p>{% endfor %}
+              </td>
+              <td>{% if row.due %}{{ row.due|date:"d M, H:i" }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="muted">Saving accepts the request straight away and emails <strong>{{ on_behalf.name }}</strong> ({{ on_behalf.email }}) the
+      confirmation with the team copied in, and each person above their assignment. Everyone listed is checked again when you save.
+      Second-years can only be the Task Supervisor; a first-year does everything else.</p>
+
+    <div class="row">
+      <button type="submit" name="step" value="confirm" class="btn btn--primary">Save and send emails</button>
+      <button type="submit" name="step" value="edit" class="btn btn--sm">← Back to the form</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -296,6 +296,22 @@ This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
 
+### Seventh batch (choose the team before saving a back-entered request)
+No migration. For `request_new?for=<club>` (POC/Admin back entry) the form now has a
+second step, `ui/templates/request_allocate.html`: **Next** shows the team the engine
+would pick for every task with a dropdown each, and nothing is saved or emailed until
+**Save and send emails** (`step=confirm`; `step=edit` is Back). The form is carried
+between steps as hidden fields (`allocation.carried_fields`) and re-validated each time;
+hand picks are `pick:<Task Name>` fields, checked with `validate_member(require_skill=False)`
+and applied through `process_new_request(..., preferred={task: TeamMember})`. The engine
+side is `workflow.staff_pipeline` (extracted from `process_new_request`, read-only, shared
+by the preview `propose_team` and the real save) — a hand pick counts as already on the
+request so the automatic picks steer around it; an editor with no explicit pick follows its
+shoot. The preview never allocates a reference code or books the calendar, and asks each
+person's calendar once per window (`allocation._RememberingCalendar`). A club's own
+request is unchanged (no second step, `pick:*` fields ignored). Back-entry tests must post
+`step=confirm`.
+
 ### Sixth batch (random last-resort tie-break, reset_event_data)
 No migration. **Auto-assignment ties are broken at random**, never alphabetically:
 rank = (vertical tier, then fewest points); everyone still tied for first is equally

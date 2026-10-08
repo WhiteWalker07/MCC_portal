@@ -142,7 +142,7 @@
     <p class="muted">The Request ID and status are assigned automatically.</p>
     {% if form.non_field_errors %}<p class="error">{{ form.non_field_errors|join:" " }}</p>{% endif %}
     <div class="row">
-      <button type="submit" class="btn btn--primary">Submit request</button>
+      <button type="submit" class="btn btn--primary">{% if on_behalf %}Next: choose the team{% else %}Submit request{% endif %}</button>
       <a class="btn btn--sm" href="{% url 'request-list' %}">Cancel</a>
     </div>
   </form>
