@@ -297,9 +297,12 @@ idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
 
 ### Eleventh batch (the "Press Desk" design system)
-No migration, no logic change: templates and `portal/static/styles.css` only. **Deploy needs
-`manage.py collectstatic --noinput` before the restart** (production serves `staticfiles/`, which
-is not in git); without it the lab PC keeps showing the old stylesheet.
+No migration, no logic change: templates, `portal/static/styles.css`, and one setting. The first
+deploy showed the new templates styled by the OLD stylesheet (unstyled sidebar) because production
+served the stale, git-ignored `staticfiles/` copy left by the original `collectstatic`. Fixed by
+`WHITENOISE_USE_FINDERS = True` in `settings.py`: WhiteNoise now reads `static/` itself at start-up
+and it wins over `staticfiles/`, so **`git pull` + `Restart-Service MCCPortal` is enough** (no
+`collectstatic` needed; the restart is what re-reads the files). Covered by `ui/tests/test_static.py`.
 - Source of the design: the "MCC Portal Redesign" canvas (claude.ai artifact `Gggac3VnjZ1k1YDvQKrAWS`;
   `project/mcc.css` + 15 screens). `styles.css` is that system: warm paper, ink sidebar, one indigo
   accent, Hanken Grotesk + Space Mono, 44px targets. Tokens are in `:root` (`--bg`, `--ink`,
