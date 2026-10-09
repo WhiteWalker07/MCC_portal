@@ -338,6 +338,11 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Serve the files in `static/` themselves, read when the service starts and taking
+# precedence over the collected copy in `staticfiles/`. Without this a deploy that
+# forgets `collectstatic` serves a stale stylesheet against new templates (a
+# half-styled page). `git pull` + restart is then enough.
+WHITENOISE_USE_FINDERS = True
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     # Compressed, but NOT the Manifest variant: the manifest one renames every
