@@ -53,6 +53,20 @@ ROLE_LABELS = {
 }
 
 
+def role_badges(roles: PortalRoles) -> list[str]:
+    """
+    The role chips shown on Home and Profile. A requesting body is labelled with what it
+    actually is (Club, Committee, SIG, Office), not always "Committee".
+    """
+    badges = []
+    for name in roles.names:
+        if name == "committee" and roles.committee is not None and (roles.committee.type or "").strip():
+            badges.append(roles.committee.type.strip())
+        else:
+            badges.append(ROLE_LABELS.get(name, name))
+    return badges
+
+
 def visible_nav(roles: PortalRoles) -> list[NavItem]:
     if not roles.is_authenticated:
         return []
@@ -87,6 +101,6 @@ def portal_nav(request):
     return {
         "nav_items": visible_nav(roles),
         "portal_roles": roles,
-        "role_badges": [ROLE_LABELS.get(name, name) for name in roles.names],
+        "role_badges": role_badges(roles),
         "identity_tag": identity_tag(roles),
     }
