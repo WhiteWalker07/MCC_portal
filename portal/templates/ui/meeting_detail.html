@@ -1,13 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ meeting.title }} — Meetings{% endblock %}
+{% block back %}<a class="back" href="{% url 'meeting-list' %}">← Meetings</a>{% endblock %}
+{% block heading %}{{ meeting.title }}{% endblock %}
+{% block page_actions %}{% if meeting.is_cancelled %}<span class="status" data-status="Rejected">Cancelled</span>{% endif %}{% endblock %}
 {% block content %}
 <section class="card stack">
-  <a class="back" href="{% url 'meeting-list' %}">← Meetings</a>
-
-  <div class="view-head">
-    <h1>{{ meeting.title }}</h1>
-    {% if meeting.is_cancelled %}<span class="status" data-status="Rejected">Cancelled</span>{% endif %}
-  </div>
   <p class="muted">
     {{ meeting.start|date:"l j F Y, H:i" }} – {{ meeting.end|date:"H:i" }}
     · Called by {{ caller.name|default:meeting.called_by }}

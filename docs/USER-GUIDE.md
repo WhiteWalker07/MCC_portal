@@ -16,6 +16,11 @@ first time; it won't ask again on that device.
 
 ## Everyone (any signed-in @iimsirmaur.ac.in account)
 
+**Finding your way around.** On a computer the menu runs down the left (the POC and
+Admin's Approvals, Dashboard and Admin sit under "Run the desk"), with your name and
+**Sign out** at the bottom. On a phone the menu is a bar along the bottom of the
+screen; slide it sideways if there are more items than fit.
+
 **Home** is where signing in lands you. It shows your requests and a **New request**
 button. If you're on the team it also shows your open tasks (overdue ones first),
 your points and strikes, and your upcoming meetings. If you coordinate or supervise

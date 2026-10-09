@@ -1,9 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Media Committee Portal{% endblock %}
+{% block heading %}Dashboard{% endblock %}
 {% block content %}
 <section class="card stack">
-  <h1>Dashboard</h1>
-
   <form method="get" class="filters">
     <select class="input filter__sel" name="period">
       <option value="all" {% if filters.period == "all" %}selected{% endif %}>All time</option>

@@ -296,6 +296,29 @@ This was rehearsed on a copy of the dev database (migrate, then seed twice —
 idempotent). Requests in flight are untouched; older Coverage requests simply
 have no Task Supervisor (POC/Admin can add one from Assignments).
 
+### Eleventh batch (the "Press Desk" design system)
+No migration, no logic change: templates and `portal/static/styles.css` only. **Deploy needs
+`manage.py collectstatic --noinput` before the restart** (production serves `staticfiles/`, which
+is not in git); without it the lab PC keeps showing the old stylesheet.
+- Source of the design: the "MCC Portal Redesign" canvas (claude.ai artifact `Gggac3VnjZ1k1YDvQKrAWS`;
+  `project/mcc.css` + 15 screens). `styles.css` is that system: warm paper, ink sidebar, one indigo
+  accent, Hanken Grotesk + Space Mono, 44px targets. Tokens are in `:root` (`--bg`, `--ink`,
+  `--primary`, `--danger`, ...).
+- **Two class vocabularies on purpose**: the original names (`.btn--primary`, `.view-head`, `.list__link`,
+  `.tcard`, `.stat__value` ...) still work and take the new look, and the design's own (`.btn.primary`,
+  `.page-h`, `.rows`, `.tbl`, `.callout`, `.stat.hot`) are defined too. No form, field name, id, `data-*`
+  hook or JS class (`js-*`) was renamed, so behaviour and tests are untouched.
+- **Shell** (`base.html`): signed-in pages are `.app > aside.side + main.main > .wrap`. Sidebar = brand,
+  role-gated nav (`NavItem.group` puts Approvals / Dashboard / Admin under "Run the desk"), then the
+  user block with Sign out. Under 800px the sidebar becomes a slim header and the nav a fixed bottom
+  tab bar that scrolls sideways (`.nav__short` labels). Anonymous pages get no shell (the sign-in
+  page is its own two-panel layout). Flash messages render as `.flash`.
+- Each page's title now sits above its card as `.page-h` (back link, title, status/actions).
+  Home, My Tasks, Admin tabs and the sign-in page were re-laid out; the rest keep their markup
+  inside the new components. Long unbroken text wraps (`overflow-wrap`) and wide tables scroll
+  inside their wrapper, so no page widens on a phone (checked at 360px).
+- To re-theme: edit the `:root` tokens only.
+
 ### Tenth batch (+ and Delete under each sub-event)
 No migration. Two pages changed; both group by sub-event and put a **+** and **Delete** on it.
 - **Assignments** (`views.assignment_detail`, `assignment_detail.html`): the table is split into

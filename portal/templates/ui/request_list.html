@@ -1,11 +1,9 @@
 {% extends "base.html" %}
 {% block title %}My Requests — Media Committee Portal{% endblock %}
+{% block heading %}My Requests{% endblock %}
+{% block page_actions %}<a class="btn btn--sm btn--primary" href="{% url 'request-new' %}">New</a>{% endblock %}
 {% block content %}
 <section class="card stack">
-  <div class="view-head">
-    <h1>My Requests</h1>
-    <a class="btn btn--sm btn--primary" href="{% url 'request-new' %}">New</a>
-  </div>
   {% if requests %}
     <ul class="list">
       {% for r in requests %}

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Assignments — Media Committee Portal{% endblock %}
+{% block heading %}Assignments{% endblock %}
 {% block content %}
 <section class="card stack">
-  <h1>Assignments</h1>
   {% if requests %}
     <ul class="list">
       {% for r in requests %}

@@ -1,14 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ request_obj.event_name|default:"Request" }} — Media Committee Portal{% endblock %}
+{% block back %}<a class="back" href="{% url 'request-list' %}">← My Requests</a>{% endblock %}
+{% block heading %}{{ request_obj.event_name|default:"(untitled)" }}{% endblock %}
+{% block page_actions %}<span class="status" data-status="{{ request_obj.status }}">{{ request_obj.status }}</span>{% endblock %}
 {% block content %}
 <section class="card stack">
-  <a class="back" href="{% url 'request-list' %}">← My Requests</a>
-
-  <div class="view-head">
-    <h1>{{ request_obj.event_name|default:"(untitled)" }}</h1>
-    <span class="status" data-status="{{ request_obj.status }}">{{ request_obj.status }}</span>
-  </div>
-
   {% if request_obj.status == "Rejected" %}
     <div class="stepper-rejected">Rejected{% if request_obj.reject_reason %} — {{ request_obj.reject_reason }}{% endif %}</div>
   {% else %}

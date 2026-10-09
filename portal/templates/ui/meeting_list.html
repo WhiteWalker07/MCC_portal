@@ -1,11 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Meetings — Media Committee Portal{% endblock %}
+{% block heading %}Meetings{% endblock %}
+{% block page_actions %}{% if can_call %}<a class="btn btn--primary" href="{% url 'meeting-new' %}">Schedule a meeting</a>{% endif %}{% endblock %}
 {% block content %}
 <section class="card stack">
-  <div class="view-head">
-    <h1>Meetings</h1>
-    {% if can_call %}<a class="btn btn--primary" href="{% url 'meeting-new' %}">Schedule a meeting</a>{% endif %}
-  </div>
   <p class="muted">Team meetings you called or were invited to.</p>
 
   <h2 class="h2">Upcoming</h2>

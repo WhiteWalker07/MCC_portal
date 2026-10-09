@@ -1,14 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ request_obj.event_name }} — Approval{% endblock %}
+{% block back %}<a class="back" href="{% url 'approval-list' %}">← Approvals</a>{% endblock %}
+{% block heading %}{{ request_obj.event_name|default:"(untitled)" }}{% endblock %}
+{% block page_actions %}<span class="status" data-status="{{ request_obj.status }}">{{ request_obj.status }}</span>{% endblock %}
 {% block content %}
 <section class="card stack">
-  <a class="back" href="{% url 'approval-list' %}">← Approvals</a>
-
-  <div class="view-head">
-    <h1>{{ request_obj.event_name|default:"(untitled)" }}</h1>
-    <span class="status" data-status="{{ request_obj.status }}">{{ request_obj.status }}</span>
-  </div>
-
   <dl class="dl">
     <div><dt>Request ID</dt><dd>{{ request_obj.ref_code }}</dd></div>
     <div><dt>Type</dt><dd>{{ request_obj.type }}</dd></div>

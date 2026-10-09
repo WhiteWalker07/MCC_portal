@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}New Request — Media Committee Portal{% endblock %}
+{% block heading %}New Request{% endblock %}
 {% block content %}
 <section class="card stack">
-  <h1>New Request</h1>
   {% if on_behalf %}
     <p class="note">Creating this request <strong>for {{ on_behalf.name }}</strong> ({{ on_behalf.acronym }}). It is accepted
       straight away and the club is emailed. <a href="{% url 'request-new' %}">Stop and create my own instead</a></p>

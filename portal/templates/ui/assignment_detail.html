@@ -1,13 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ request_obj.event_name }} — Assignments{% endblock %}
+{% block back %}<a class="back" href="{% url 'assignment-list' %}">← Assignments</a>{% endblock %}
+{% block heading %}{{ request_obj.event_name|default:"(untitled)" }}{% endblock %}
+{% block page_actions %}<span class="status" data-status="{{ request_obj.status }}">{{ request_obj.status }}</span>{% endblock %}
 {% block content %}
 <section class="card stack">
-  <a class="back" href="{% url 'assignment-list' %}">← Assignments</a>
-
-  <div class="view-head">
-    <h1>{{ request_obj.event_name|default:"(untitled)" }}</h1>
-    <span class="status" data-status="{{ request_obj.status }}">{{ request_obj.status }}</span>
-  </div>
   <p class="muted">{{ request_obj.ref_code }} · {{ request_obj.type }}</p>
 
   {% if not can_manage_any %}
