@@ -2,17 +2,34 @@
 {% load socialaccount %}
 {% block title %}Sign in — Media Committee Portal{% endblock %}
 {% block content %}
-<section class="signin-view">
-  <div class="signin-card card stack center">
-    <div class="signin-mark" aria-hidden="true"></div>
-    <div>
-      <h1 class="signin-title">Media Portal</h1>
-      <p class="muted signin-sub">Coverage &amp; posting requests · IIM Sirmaur</p>
+<div class="signin">
+  <section class="signin__art">
+    <div class="brand"><span class="mark" aria-hidden="true">M</span><span><b>Media Portal</b><small>IIM Sirmaur</small></span></div>
+    <div class="signin__copy">
+      <div class="eyebrow">Media &amp; Communications Committee</div>
+      <h1>One place to ask for coverage, and to see it through.</h1>
+      <p>Raise a request, get the right people assigned, and follow it from event to post.</p>
     </div>
-    <a class="btn btn--primary btn--block" href="{% provider_login_url 'google' %}">
-      <span class="g-dot" aria-hidden="true"></span> Continue with Google
-    </a>
-    <p class="note">// only @iimsirmaur.ac.in accounts are accepted</p>
-  </div>
-</section>
+    <div class="signin__steps" aria-hidden="true">
+      <div class="st done"><span class="dot"></span>Request</div>
+      <div class="st done"><span class="dot"></span>Assigned</div>
+      <div class="st"><span class="dot"></span>Covered</div>
+      <div class="st"><span class="dot"></span>Posted</div>
+    </div>
+  </section>
+  <section class="signin__panel">
+    <div class="card stack signin__card">
+      <div>
+        <h2>Sign in</h2>
+        <p class="muted">Use your institute Google account.</p>
+      </div>
+      <a class="btn btn--dark btn--block" href="{% provider_login_url 'google' %}">
+        <span class="g-dot" aria-hidden="true"></span> Continue with Google
+      </a>
+      <p class="note">// only @iimsirmaur.ac.in accounts are accepted</p>
+      <hr class="rule">
+      <p class="muted signin__fine">Committees and clubs raise requests; team members see their tasks; the POC and Admin run assignments. Your view follows your role automatically.</p>
+    </div>
+  </section>
+</div>
 {% endblock %}

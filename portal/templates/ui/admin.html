@@ -1,16 +1,14 @@
 {% extends "base.html" %}
 {% load portal_extras %}
 {% block title %}Admin — Media Committee Portal{% endblock %}
+{% block heading %}Admin{% endblock %}
 {% block content %}
 
-<section class="card stack">
-  <h1>Admin</h1>
-  <nav class="tabs" aria-label="Admin sections">
-    {% for key, label in tabs %}
-      <a class="tab{% if tab == key %} tab--active{% endif %}" href="{% url 'portal-admin' %}?tab={{ key }}">{{ label }}</a>
-    {% endfor %}
-  </nav>
-</section>
+<nav class="tabs" aria-label="Admin sections">
+  {% for key, label in tabs %}
+    <a class="tab{% if tab == key %} tab--active{% endif %}" href="{% url 'portal-admin' %}?tab={{ key }}">{{ label }}</a>
+  {% endfor %}
+</nav>
 
 {% if tab == "team" %}
 <section class="card stack">

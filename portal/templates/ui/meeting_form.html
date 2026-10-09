@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{% if editing %}Edit meeting{% else %}Schedule a meeting{% endif %} — Media Committee Portal{% endblock %}
+{% block back %}<a class="back" href="{% if editing %}{% url 'meeting-detail' editing.pk %}{% else %}{% url 'meeting-list' %}{% endif %}">← {% if editing %}Meeting{% else %}Meetings{% endif %}</a>{% endblock %}
+{% block heading %}{% if editing %}Edit meeting{% else %}Schedule a meeting{% endif %}{% endblock %}
 {% block content %}
 <section class="card stack">
-  <a class="back" href="{% if editing %}{% url 'meeting-detail' editing.pk %}{% else %}{% url 'meeting-list' %}{% endif %}">← {% if editing %}Meeting{% else %}Meetings{% endif %}</a>
-  <h1>{% if editing %}Edit meeting{% else %}Schedule a meeting{% endif %}</h1>
   <p class="muted">Everyone invited is emailed. People marked "Out of work" can't be called and aren't listed.</p>
 
   <form method="post" class="stack" novalidate>

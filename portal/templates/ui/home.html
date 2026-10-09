@@ -1,40 +1,43 @@
 {% extends "base.html" %}
 {% block title %}Home — Media Committee Portal{% endblock %}
+{% block eyebrow %}<div class="eyebrow">{% now "l j F" %}</div>{% endblock %}
+{% block heading %}Hello, {{ user.get_full_name|default:user.email }}{% endblock %}
+{% block page_actions %}
+<div class="acts">
+  {% for badge in role_badges %}<span class="badge">{{ badge }}</span>{% endfor %}
+  <a class="btn btn--primary" href="{% url 'request-new' %}">New request</a>
+</div>
+{% endblock %}
 {% block content %}
-<section class="card stack">
-  <div class="view-head">
-    <h1>Hello, {{ user.get_full_name|default:user.email }}</h1>
-    <a class="btn btn--primary" href="{% url 'request-new' %}">New request</a>
-  </div>
-  {% if role_badges %}
-    <div class="badges">{% for badge in role_badges %}<span class="badge">{{ badge }}</span>{% endfor %}</div>
-  {% endif %}
-  {% if member %}
-    <p class="muted">
-      <span class="chip-pts">{{ member.points }} pts</span>
-      · {{ member.yellow_strikes }} yellow · {{ member.red_strikes }} red
-      {% if is_out %}· <strong>You're marked out of work</strong> (<a href="{% url 'profile' %}">Profile</a>)
-      {% elif pending_leave %}· Out-of-work request waiting for the POC (<a href="{% url 'profile' %}">Profile</a>)
-      {% endif %}
-    </p>
-  {% endif %}
+
+{% if member %}
+<section class="card flat">
+  <p class="muted">
+    <span class="chip-pts">{{ member.points }} pts</span>
+    · {{ member.yellow_strikes }} yellow · {{ member.red_strikes }} red
+    {% if is_out %}· <strong>You're marked out of work</strong> (<a href="{% url 'profile' %}">Profile</a>)
+    {% elif pending_leave %}· Out-of-work request waiting for the POC (<a href="{% url 'profile' %}">Profile</a>)
+    {% endif %}
+  </p>
 </section>
+{% endif %}
 
 {% if is_staff %}
-<section class="card stack">
-  <h2 class="h2">Needs attention</h2>
-  <div class="stat-grid">
-    <a class="stat" href="{% url 'approval-list' %}"><span class="stat__value">{{ pending_requests }}</span><span class="stat__label">Requests to approve</span></a>
-    <a class="stat" href="{% url 'approval-list' %}"><span class="stat__value">{{ pending_leaves }}</span><span class="stat__label">Out-of-work requests</span></a>
-    <a class="stat" href="{% url 'assignment-list' %}"><span class="stat__value">{{ late_tasks }}</span><span class="stat__label">Overdue tasks</span></a>
-    <a class="stat" href="{% url 'assignment-list' %}"><span class="stat__value">{{ unfilled_tasks }}</span><span class="stat__label">Roles nobody could take</span></a>
-  </div>
-  <h3 class="h2">Events in the next {{ upcoming_days }} days</h3>
+<h2 class="h2">Needs attention</h2>
+<div class="stat-grid">
+  <a class="stat{% if pending_requests %} cool{% endif %}" href="{% url 'approval-list' %}"><span class="stat__value">{{ pending_requests }}</span><span class="stat__label">Requests to approve</span></a>
+  <a class="stat{% if pending_leaves %} cool{% endif %}" href="{% url 'approval-list' %}"><span class="stat__value">{{ pending_leaves }}</span><span class="stat__label">Out-of-work requests</span></a>
+  <a class="stat{% if late_tasks %} hot{% endif %}" href="{% url 'assignment-list' %}"><span class="stat__value">{{ late_tasks }}</span><span class="stat__label">Overdue tasks</span></a>
+  <a class="stat{% if unfilled_tasks %} hot{% endif %}" href="{% url 'assignment-list' %}"><span class="stat__value">{{ unfilled_tasks }}</span><span class="stat__label">Roles nobody could take</span></a>
+</div>
+
+<section class="card tight">
+  <div class="card-h"><h2>Events in the next {{ upcoming_days }} days</h2><a class="back" href="{% url 'assignment-list' %}">All assignments</a></div>
   {% if upcoming_events %}
     <ul class="list">
       {% for r in upcoming_events %}
         <li class="list__item">
-          <a class="list__link" href="{% url 'assignment-detail' r.pk %}">
+          <a class="list__link wide" href="{% url 'assignment-detail' r.pk %}">
             <span class="list__main">
               <span class="list__title">{{ r.event_name|default:"(untitled)" }}</span>
               <span class="list__sub">{{ r.ref_code }} · {% if r.is_multiday %}{{ r.event_start|date:"D d M" }} – {{ r.event_end|date:"D d M" }}{% else %}{{ r.event_start|date:"D d M, H:i" }}{% endif %}</span>
@@ -53,7 +56,7 @@
 {% if member %}
 <section class="card stack">
   <div class="view-head">
-    <h2 class="h2">My tasks</h2>
+    <h2 class="h2 flush">My tasks</h2>
     <a class="btn btn--sm" href="{% url 'task-list' %}">All my tasks ({{ my_task_count }})</a>
   </div>
   {% if my_late_count %}<p class="error">{{ my_late_count }} overdue: finish these first.</p>{% endif %}
@@ -98,9 +101,9 @@
 
 {% if coordinating or supervising or unfilled_in_vertical %}
 <section class="card stack">
-  <h2 class="h2">Events you look after</h2>
+  <h2 class="h2 flush">Events you look after</h2>
   {% if unfilled_in_vertical %}
-    <p class="note">{{ unfilled_in_vertical }} role(s) in your vertical have nobody assigned. <a href="{% url 'assignment-list' %}">Open Assignments</a></p>
+    <p class="callout warn">{{ unfilled_in_vertical }} role(s) in your vertical have nobody assigned. <a href="{% url 'assignment-list' %}">Open Assignments</a></p>
   {% endif %}
   <ul class="list">
     {% for r in coordinating %}
@@ -119,7 +122,7 @@
 
 <section class="card stack">
   <div class="view-head">
-    <h2 class="h2">My requests</h2>
+    <h2 class="h2 flush">My requests</h2>
     <a class="btn btn--sm" href="{% url 'request-list' %}">All my requests</a>
   </div>
   {% if my_requests %}

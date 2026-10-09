@@ -22,6 +22,8 @@ class NavItem:
     short: str
     url_name: str
     visible: Callable[[PortalRoles], bool]
+    #: Items with the same non-empty group sit under one heading in the sidebar.
+    group: str = ""
 
 
 NAV_ITEMS: list[NavItem] = [
@@ -35,9 +37,9 @@ NAV_ITEMS: list[NavItem] = [
     NavItem("assignments", "Assignments", "Assign", "assignment-list", lambda r: r.can_reach_assignments),
     # Team members see the meetings they're invited to; heads/POC/Admin also call them.
     NavItem("meetings", "Meetings", "Meets", "meeting-list", can_view_meetings),
-    NavItem("approvals", "Approvals", "Approve", "approval-list", lambda r: r.is_staff_side),
-    NavItem("dashboard", "Dashboard", "Stats", "dashboard", lambda r: r.is_staff_side),
-    NavItem("admin", "Admin", "Admin", "portal-admin", lambda r: r.is_staff_side),
+    NavItem("approvals", "Approvals", "Approve", "approval-list", lambda r: r.is_staff_side, "Run the desk"),
+    NavItem("dashboard", "Dashboard", "Stats", "dashboard", lambda r: r.is_staff_side, "Run the desk"),
+    NavItem("admin", "Admin", "Admin", "portal-admin", lambda r: r.is_staff_side, "Run the desk"),
 ]
 
 ROLE_LABELS = {
